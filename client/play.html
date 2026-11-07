@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Kart Game – Controller</title>
+    <style>
+      :root { --accent: #888; }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body {
+        margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none;
+        font-family: sans-serif; background: #111; color: #eee;
+        touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+      }
+      .screen { display: none; height: 100%; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+      .screen.active { display: flex; }
+
+      /* join screen */
+      #join { flex-direction: column; align-items: center; justify-content: center; gap: 1rem; text-align: center; }
+      #join input, #join button { font-size: 1.4rem; padding: 0.7rem 1rem; border-radius: 0.6rem; border: none; }
+      #join input { width: min(80vw, 18rem); text-align: center; }
+      #join button { background: #4a4; color: #fff; }
+      #error { color: #f77; min-height: 1.4em; }
+
+      /* controller screen */
+      #pad { flex-direction: column; padding: 0.6rem; gap: 0.6rem; }
+      #hud { display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0.8rem; border-radius: 0.6rem; background: #222; border-left: 0.6rem solid var(--accent); font-size: 1.1rem; }
+      #hud b { font-size: 1.3rem; }
+      #buttons { flex: 1; display: flex; gap: 0.6rem; min-height: 0; }
+      .group { flex: 1; display: flex; gap: 0.6rem; }
+      #steer button { flex: 1; }
+      #pedals { flex-direction: column; }
+      #pedals button[data-btn="gas"] { flex: 2; background: #264d26; }
+      #lower { flex: 1; display: flex; gap: 0.6rem; }
+      #lower button { flex: 1; }
+      #lower button[data-btn="brake"] { background: #5a2323; }
+      #lower button[data-btn="item"] { background: #4a3a10; }
+      .group button { border: none; border-radius: 1rem; background: #333; color: #eee; font-size: 1.6rem; touch-action: none; }
+      .group button.down { filter: brightness(1.8); }
+
+      /* ask for landscape */
+      #rotate { display: none; position: fixed; inset: 0; background: #111; z-index: 10; align-items: center; justify-content: center; font-size: 1.4rem; text-align: center; padding: 2rem; }
+      @media (orientation: portrait) { #pad.active ~ #rotate { display: flex; } }
+    </style>
+  </head>
+  <body>
+    <div id="join" class="screen active">
+      <h1>Join kart race</h1>
+      <input id="name" placeholder="Your name" maxlength="12" autocomplete="off" />
+      <button id="joinBtn">Join</button>
+      <div id="error"></div>
+    </div>
+
+    <div id="pad" class="screen">
+      <div id="hud">
+        <span id="who"></span>
+        <span id="phase"></span>
+        <span id="race">Lap <b id="lap">-</b> · Pos <b id="pos">-</b> · <b id="item">-</b></span>
+      </div>
+      <div id="buttons">
+        <div id="steer" class="group">
+          <button data-btn="left">◀</button>
+          <button data-btn="right">▶</button>
+        </div>
+        <div id="pedals" class="group">
+          <button data-btn="gas">GAS</button>
+          <div id="lower">
+            <button data-btn="brake">BRAKE</button>
+            <button data-btn="item">ITEM</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="rotate">Turn your phone sideways to drive</div>
+    <script type="module" src="/controller/main.js"></script>
+  </body>
+</html>
