@@ -33,6 +33,7 @@
       #players li, #standings li { margin: 1vmin 0; }
       #players li.gone { opacity: 0.4; }
       #players:empty::before { content: "Waiting for players..."; color: var(--grey); }
+      #players canvas.head { width: 8vmin; height: 8vmin; vertical-align: middle; margin-right: 1vmin; image-rendering: pixelated; }
       .dot { display: inline-block; width: 2vmin; height: 2vmin; margin-right: 1.2vmin; border: 0.3vmin solid #000; outline: 0.3vmin solid var(--white); }
       .row { display: flex; align-items: center; justify-content: space-between; gap: 1vmin; font-size: 1.6vmin; margin: 1.2vmin 0; }
       .row b { flex: 1; text-align: center; font-weight: normal; color: var(--coin); }

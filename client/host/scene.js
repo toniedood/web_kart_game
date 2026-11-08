@@ -225,7 +225,10 @@ function buildKart(k, shadowTexture) {
   const root = new THREE.Group(); // position + heading
   const tilt = new THREE.Group(); // leans in corners
   root.add(tilt);
-  const paint = new THREE.MeshLambertMaterial({ color: k.color });
+  const look = k.look; // the driver's look from the phone (outfit colour, hair, extras)
+  const paint = new THREE.MeshLambertMaterial({ color: look?.outfit ?? k.color });
+  const hairMat = new THREE.MeshLambertMaterial({ color: look?.hairColor ?? 0xffffff });
+  const skinMat = new THREE.MeshLambertMaterial({ color: look?.skin ?? 0xe0a47a });
   const dark = new THREE.MeshLambertMaterial({ color: 0x222222 });
   const white = new THREE.MeshLambertMaterial({ color: 0xffffff });
 
@@ -241,10 +244,33 @@ function buildKart(k, shadowTexture) {
   add(new THREE.BoxGeometry(2.4, 0.15, 0.5), dark, 0, 0.35, 2.55); // front wing
   add(new THREE.BoxGeometry(2, 0.15, 0.6), dark, 0, 1.55, -1.55); // rear wing
   add(new THREE.BoxGeometry(1.4, 0.55, 0.15), dark, 0, 1.2, -1.5); // wing struts
-  add(new THREE.BoxGeometry(0.5, 0.05, 2.6), white, 0, 1.02, 0); // stripe
+  add(new THREE.BoxGeometry(0.5, 0.05, 2.6), look ? hairMat : white, 0, 1.02, 0); // stripe
   add(new THREE.BoxGeometry(0.9, 0.4, 0.9), dark, 0, 1.1, -0.35); // seat
-  add(new THREE.SphereGeometry(0.4, 8, 6), white, 0, 1.55, -0.3); // helmet
-  add(new THREE.BoxGeometry(0.5, 0.18, 0.3), dark, 0, 1.58, -0.0); // visor
+  add(new THREE.SphereGeometry(0.4, 8, 6), look ? (look.hairStyle === 4 ? skinMat : hairMat) : white, 0, 1.55, -0.3); // helmet
+  const visorMat = look?.accessory === 1 ? new THREE.MeshBasicMaterial({ color: look.hairColor }) : dark;
+  add(new THREE.BoxGeometry(0.5, 0.18, 0.3), visorMat, 0, 1.58, -0.0); // visor
+  if (look?.accessory === 2) add(new THREE.CylinderGeometry(0.42, 0.42, 0.1, 10), new THREE.MeshLambertMaterial({ color: look.outfit }), 0, 1.66, -0.3); // headband
+  if (look) {
+    // hair: a few cones, a ridge or a flat top on the helmet
+    const spike = (x, z, tiltZ, tiltX = 0) => {
+      const m = add(new THREE.ConeGeometry(0.11, 0.45, 5), hairMat, x, 2.0, z);
+      m.rotation.z = tiltZ;
+      m.rotation.x = tiltX;
+    };
+    if (look.hairStyle === 0) {
+      spike(0, -0.3, 0);
+      spike(-0.2, -0.3, 0.4);
+      spike(0.2, -0.3, -0.4);
+    } else if (look.hairStyle === 1) {
+      spike(-0.22, -0.4, 0.8, -0.3);
+      spike(0.22, -0.4, -0.8, -0.3);
+      spike(0, -0.55, 0, -0.9);
+    } else if (look.hairStyle === 2) {
+      add(new THREE.BoxGeometry(0.1, 0.32, 0.7), hairMat, 0, 1.98, -0.3);
+    } else if (look.hairStyle === 3) {
+      add(new THREE.BoxGeometry(0.55, 0.14, 0.55), hairMat, 0, 1.94, -0.3);
+    }
+  }
   for (const side of [-1, 1]) add(new THREE.BoxGeometry(0.25, 0.25, 0.9), dark, side * 1.0, 0.7, -1.9); // exhausts
 
   // wheels: a pivot (steers) holding the tyre (spins)

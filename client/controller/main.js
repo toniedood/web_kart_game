@@ -1,6 +1,8 @@
 import { io } from "socket.io-client";
 import { EVENTS } from "../shared/events.js";
 import { colourLogos } from "../shared/logo.js";
+import { HAIR_STYLES, ACCESSORIES, HAIR_COLORS, SKINS, OUTFITS, cleanLook, resolveLook, randomLook } from "../shared/look.js";
+import { drawFighter, specFromLook, POSES } from "../host/fight/sprites.js";
 
 colourLogos();
 
@@ -51,10 +53,20 @@ function show(screen) {
   padScreen.classList.toggle("active", screen === padScreen);
 }
 
+// the character chosen on this phone (kept between visits)
+const LOOK_KEY = "peaky-look";
+let look = randomLook();
+try {
+  const stored = JSON.parse(localStorage.getItem(LOOK_KEY));
+  if (stored) look = cleanLook(stored);
+} catch {}
+let joined = false;
+let myColor = loadSession()?.color ?? "#e53935"; // the colour the server gave this player, used when the outfit is on AUTO
+
 function join(name, saved) {
   socket.emit(
     EVENTS.PLAYER_JOIN,
-    { code, name, playerId: saved?.playerId, color: saved?.color },
+    { code, name, playerId: saved?.playerId, color: saved?.color, look },
     (res) => {
       if (!res.ok) {
         $("error").textContent = res.error;
@@ -63,6 +75,9 @@ function join(name, saved) {
         return;
       }
       localStorage.setItem(KEY, JSON.stringify({ code, playerId: res.playerId, name, color: res.color }));
+      joined = true;
+      myColor = res.color;
+      drawPreview();
       document.documentElement.style.setProperty("--accent", res.color);
       $("who").textContent = name || "Player";
       $("phase").textContent = PHASE_TEXT.lobby;
@@ -82,6 +97,7 @@ $("joinBtn").addEventListener("click", () => {
 });
 
 // (re)join automatically on page refresh and after a dropped connection
+socket.on("disconnect", () => (joined = false));
 socket.on("connect", () => {
   const saved = loadSession();
   if (saved) join(saved.name, saved);
@@ -197,6 +213,99 @@ for (const [part, colors] of Object.entries(PALETTES)) {
 }
 applyStyle();
 
+// --- character sheet ---
+function saveLook() {
+  try {
+    localStorage.setItem(LOOK_KEY, JSON.stringify(look));
+  } catch {}
+  if (joined) socket.emit(EVENTS.PLAYER_LOOK, { look });
+}
+
+function drawPreview() {
+  const canvas = $("charPreview");
+  const g = canvas.getContext("2d");
+  g.imageSmoothingEnabled = false;
+  const sky = g.createLinearGradient(0, 0, 0, 200);
+  sky.addColorStop(0, "#1c0a3e");
+  sky.addColorStop(1, "#7a1f84");
+  g.fillStyle = sky;
+  g.fillRect(0, 0, 240, 200);
+  g.fillStyle = "#0a0418";
+  g.fillRect(0, 168, 240, 32);
+  g.fillStyle = "#00f0ff";
+  g.fillRect(0, 168, 240, 1);
+  const sprite = drawFighter(specFromLook(resolveLook(look, myColor)), POSES.idle, false);
+  g.drawImage(sprite, 0, 16);
+}
+
+const LOOK_UI = [
+  { key: "hairStyle", kind: "opts", names: HAIR_STYLES },
+  { key: "hairColor", kind: "swatches", values: HAIR_COLORS },
+  { key: "skin", kind: "swatches", values: SKINS },
+  { key: "outfit", kind: "swatches", values: OUTFITS, auto: true },
+  { key: "accessory", kind: "opts", names: ACCESSORIES },
+];
+
+function markLookUi() {
+  for (const row of LOOK_UI) {
+    const box = $(row.kind === "opts" ? `opt-${row.key}` : `sw-${row.key}`);
+    for (const el of box.children) el.classList.toggle("on", el.dataset.value === String(look[row.key]));
+  }
+  drawPreview();
+}
+
+function chooseLook(key, value) {
+  look = cleanLook({ ...look, [key]: value });
+  markLookUi();
+  saveLook();
+}
+
+for (const row of LOOK_UI) {
+  const box = $(row.kind === "opts" ? `opt-${row.key}` : `sw-${row.key}`);
+  if (row.kind === "opts") {
+    row.names.forEach((name, i) => {
+      const b = document.createElement("button");
+      b.className = "opt";
+      b.textContent = name;
+      b.dataset.value = String(i);
+      b.addEventListener("click", () => chooseLook(row.key, i));
+      box.append(b);
+    });
+  } else {
+    if (row.auto) {
+      const b = document.createElement("button");
+      b.className = "swatch auto";
+      b.textContent = "AUTO";
+      b.dataset.value = "null";
+      b.addEventListener("click", () => chooseLook(row.key, null));
+      box.append(b);
+    }
+    for (const color of row.values) {
+      const b = document.createElement("button");
+      b.className = "swatch";
+      b.style.background = color;
+      b.dataset.value = color;
+      b.addEventListener("click", () => chooseLook(row.key, color));
+      box.append(b);
+    }
+  }
+}
+markLookUi();
+saveLook(); // keep the first random character too
+
+function openCharacter(open) {
+  releaseAll();
+  $("character").classList.toggle("hidden", !open);
+  if (open) markLookUi();
+}
+for (const btn of document.querySelectorAll(".characterBtn")) btn.addEventListener("click", () => openCharacter(true));
+$("closeCharacter").addEventListener("click", () => openCharacter(false));
+$("randomLook").addEventListener("click", () => {
+  look = randomLook();
+  markLookUi();
+  saveLook();
+});
+
 function openSettings(open) {
   releaseAll();
   $("settings").classList.toggle("hidden", !open);
@@ -246,6 +355,7 @@ socket.on(EVENTS.PLAYER_FEEDBACK, ({ lap, position, item, hp, wins, vibrate }) =
 });
 
 socket.on(EVENTS.ROOM_CLOSED, () => {
+  joined = false;
   localStorage.removeItem(KEY);
   releaseAll();
   $("error").textContent = "The host closed the room.";

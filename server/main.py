@@ -47,6 +47,20 @@ rooms = {}
 sessions = {}
 
 
+LOOK_KEYS = ("hairStyle", "hairColor", "skin", "outfit", "accessory")
+
+
+def clean_look(raw):
+    """Keep only the known look fields with short simple values; the host checks them again."""
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        k: raw[k]
+        for k in LOOK_KEYS
+        if isinstance(raw.get(k), (int, str)) and len(str(raw[k])) <= 12
+    }
+
+
 def new_code():
     while True:
         code = "".join(random.choices(string.ascii_uppercase, k=ev.CODE_LENGTH))
@@ -82,11 +96,12 @@ async def player_join(sid, data):
         c for c in ev.COLORS if c not in used
     )
 
-    room["players"][player_id] = {"sid": sid, "name": name, "color": color}
+    look = clean_look(data.get("look"))
+    room["players"][player_id] = {"sid": sid, "name": name, "color": color, "look": look}
     sessions[sid] = {"code": code, "playerId": player_id}
     await sio.emit(
         ev.PLAYER_JOINED,
-        {"playerId": player_id, "name": name, "color": color},
+        {"playerId": player_id, "name": name, "color": color, "look": look},
         to=room["host"],
     )
     return {"ok": True, "playerId": player_id, "color": color}
@@ -95,6 +110,20 @@ async def player_join(sid, data):
 @sio.on("latency")
 async def latency(sid):
     return True  # the host times how long this answer takes
+
+
+@sio.on(ev.PLAYER_LOOK)
+async def on_player_look(sid, data):
+    session = sessions.get(sid)
+    if session is None or session["playerId"] is None:
+        return
+    room = rooms.get(session["code"])
+    player = room["players"].get(session["playerId"]) if room else None
+    if player is None:
+        return
+    look = clean_look(data.get("look") if isinstance(data, dict) else None)
+    player["look"] = look
+    await sio.emit(ev.PLAYER_LOOK, {"playerId": session["playerId"], "look": look}, to=room["host"])
 
 
 @sio.on(ev.INPUT)

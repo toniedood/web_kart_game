@@ -25,6 +25,7 @@ export class Race {
       id: p.id,
       name: p.name,
       color: p.color,
+      look: p.look,
       bot: !!p.bot,
       skill: p.skill ?? 1,
       ...track.gridPose(i),

@@ -4,6 +4,7 @@ export const EVENTS = {
   PLAYER_JOIN: "player:join",
   PLAYER_JOINED: "player:joined",
   PLAYER_LEFT: "player:left",
+  PLAYER_LOOK: "player:look",
   INPUT: "input",
   GAME_PHASE: "game:phase",
   PLAYER_FEEDBACK: "player:feedback",

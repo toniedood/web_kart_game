@@ -72,7 +72,6 @@ export const POSES = {
 };
 
 const NAVY = ["#0a0a22", "#161640", "#24245e", "#3a3a88"];
-const SKIN = ["#8a5a48", "#c88a6a", "#f0b090", "#ffd8c0"];
 
 export function tint(hex, amount) {
   const n = parseInt(/^#[0-9a-f]{6}$/i.test(hex) ? hex.slice(1) : "888888", 16);
@@ -81,35 +80,39 @@ export function tint(hex, amount) {
 }
 
 const rampOf = (hex) => [tint(hex, -0.62), tint(hex, -0.34), hex, tint(hex, 0.45)];
+const skinRamp = (hex) => [tint(hex, -0.42), tint(hex, -0.2), hex, tint(hex, 0.3)];
 
-// four looks: hair, trim and boots; the jacket takes the player's colour
-const LOOKS = [
-  { hair: ["#006a78", "#00a8c0", "#00f0ff", "#b8fcff"], accent: ["#006a78", "#00a8c0", "#00f0ff", "#a8fcff"], trim: "#00f0ff", visor: ["#003a4a", "#007f99", "#00e5ff", "#d8ffff"], spikes: [[-2, -8, -10, -14, 3], [2, -10, -1, -20, 3], [5, -9, 10, -17, 2.6], [-5, -6, -16, -8, 2.6]] },
-  { hair: ["#58400a", "#c8a020", "#ffe14d", "#fffbb0"], accent: ["#58400a", "#a07814", "#ffd23d", "#fff09a"], trim: "#ff3d9a", spikes: [[-2, -8, -9, -15, 3], [2, -10, 3, -19, 3], [5, -9, 11, -13, 2.6], [-5, -6, -13, -10, 2.6]] },
-  { hair: ["#6a0a3c", "#b01c64", "#ff3d9a", "#ff8cc4"], accent: ["#3a0a24", "#8a1c5c", "#ff3d9a", "#ffa0cc"], trim: "#ffe14d", spikes: [[-3, -8, -12, -10, 3.2], [1, -10, -2, -21, 3], [5, -8, 9, -18, 2.8]] },
-  { hair: ["#7c7c8c", "#b8b8c8", "#eeeef8", "#ffffff"], accent: ["#7c3a10", "#c8641c", "#ff8a3a", "#ffc08a"], trim: "#ff8a3a", band: ["#7c3a10", "#c8641c", "#ff8a3a", "#ffc08a"], spikes: [[-2, -8, -8, -16, 3], [2, -10, 1, -18, 2.8], [6, -8, 12, -12, 2.4]] },
+// hair spikes per style: [x0, y0, x1, y1, thickness] in head units (see HAIR_STYLES in shared/look.js)
+const SPIKES = [
+  [[-2, -8, -10, -14, 3], [2, -10, -1, -20, 3], [5, -9, 10, -17, 2.6], [-5, -6, -16, -8, 2.6]], // spiky
+  [[-3, -8, -12, -10, 3.2], [1, -10, -2, -21, 3], [5, -8, 9, -18, 2.8], [-6, -4, -17, -2, 2.4]], // wild
+  [[-6, -9, -8, -17, 2.4], [-2, -11, -3, -21, 2.4], [2, -11, 2, -21, 2.4], [6, -9, 7, -17, 2.4]], // mohawk
+  [], // flat
+  [], // bald
 ];
 
-export function specFor(color, index) {
-  const look = LOOKS[index % LOOKS.length];
+// `look` is a resolved look (see resolveLook in shared/look.js): outfit is a colour
+export function specFromLook(look) {
+  const hair = rampOf(look.hairColor);
   return {
-    skin: SKIN,
-    top: rampOf(color),
+    skin: skinRamp(look.skin),
+    top: rampOf(look.outfit),
     sleeve: true,
     pants: NAVY,
-    shoe: look.accent,
+    shoe: hair,
     sole: "#000",
     glove: NAVY,
-    wrap: look.accent,
-    belt: look.accent,
-    hair: look.hair,
-    spikes: look.spikes,
-    visor: look.visor,
-    band: look.band,
+    wrap: hair,
+    belt: hair,
+    hair: look.hairStyle === 4 ? null : hair,
+    hairCap: look.hairStyle !== 2,
+    spikes: SPIKES[look.hairStyle] ?? [],
+    visor: look.accessory === 1 ? [tint(look.hairColor, -0.6), tint(look.hairColor, -0.3), look.hairColor, tint(look.hairColor, 0.7)] : null,
+    band: look.accessory === 2 ? hair : null,
     eye: "#000",
     brow: "#000",
-    trim: look.trim,
-    stripe: look.trim,
+    trim: look.hairColor,
+    stripe: look.hairColor,
     shinStripe: true,
     vneck: false,
     outline: "#050010",
@@ -171,9 +174,11 @@ export function drawFighter(f, pose, flip) {
   ell(q, hd[0] - fx * r(7), hd[1] + r(1), r(2.2), r(3), f.skin);
   ell(q, hd[0], hd[1], r(8.4), r(9.4), f.skin);
   ell(q, hd[0] + fx * r(7.8), hd[1] + r(2), r(2), r(2.4), f.skin);
-  ell(q, hd[0] - fx * r(1.2), hd[1] - r(3.4), r(9.4), r(7.4), f.hair);
-  for (const sp of f.spikes) {
-    cap(q, hd[0] + fx * r(sp[0]), hd[1] + r(sp[1]), hd[0] + fx * r(sp[2]), hd[1] + r(sp[3]), r(sp[4]), r(0.6), f.hair);
+  if (f.hair) {
+    if (f.hairCap) ell(q, hd[0] - fx * r(1.2), hd[1] - r(3.4), r(9.4), r(7.4), f.hair);
+    for (const sp of f.spikes) {
+      cap(q, hd[0] + fx * r(sp[0]), hd[1] + r(sp[1]), hd[0] + fx * r(sp[2]), hd[1] + r(sp[3]), r(sp[4]), r(0.6), f.hair);
+    }
   }
   if (f.band) {
     cap(q, hd[0] - r(8.6), hd[1] - r(4.4), hd[0] + r(8.6), hd[1] - r(4.4), r(2), r(2), f.band);
@@ -233,12 +238,29 @@ export function drawFighter(f, pose, flip) {
 }
 
 // one cache per fighter: pose name + facing -> canvas
-export function buildSprites(color, index) {
-  const spec = specFor(color, index);
+export function buildSprites(look) {
+  const spec = specFromLook(look);
   const sprites = {};
   for (const [name, pose] of Object.entries(POSES)) {
     sprites[`${name}|0`] = drawFighter(spec, pose, false);
     sprites[`${name}|1`] = drawFighter(spec, pose, true);
   }
   return sprites;
+}
+
+// just the head and shoulders, for the lobby list
+const headCache = new Map();
+export function headshot(look) {
+  const key = JSON.stringify(look);
+  if (!headCache.has(key)) {
+    const sprite = drawFighter(specFromLook(look), POSES.idle, false);
+    const c = document.createElement("canvas");
+    c.width = 40;
+    c.height = 40;
+    const g = c.getContext("2d");
+    g.imageSmoothingEnabled = false;
+    g.drawImage(sprite, 92, 14, 64, 64, 0, 0, 40, 40);
+    headCache.set(key, c);
+  }
+  return headCache.get(key);
 }

@@ -148,7 +148,7 @@ export function createFightView(canvas) {
   function prepare(game) {
     sprites = new Map();
     effects = [];
-    for (const f of game.fighters) sprites.set(f.id, buildSprites(f.color, f.index));
+    for (const f of game.fighters) sprites.set(f.id, buildSprites(f.look));
   }
 
   function onEvent(e) {

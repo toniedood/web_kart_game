@@ -12,6 +12,8 @@ import { createAudio } from "./audio.js";
 import { colourLogos } from "../shared/logo.js";
 import { FightGame } from "./fight/game.js";
 import { createFightView } from "./fight/view.js";
+import { headshot } from "./fight/sprites.js";
+import { cleanLook, resolveLook, botLook } from "../shared/look.js";
 
 const $ = (id) => document.getElementById(id);
 const NO_INPUT = {};
@@ -54,7 +56,12 @@ function renderLobby() {
     const li = document.createElement("li");
     if (!p.connected) li.className = "gone";
     li.innerHTML = `<span class="dot" style="background:${p.color}"></span>`;
-    li.append(p.name);
+    const face = document.createElement("canvas"); // a small head preview of the phone's character
+    face.width = 40;
+    face.height = 40;
+    face.className = "head";
+    face.getContext("2d").drawImage(headshot(resolveLook(p.look, p.color)), 0, 0);
+    li.append(face, p.name);
     list.append(li);
   }
   const humans = [...players.values()].filter((p) => p.connected).length;
@@ -113,12 +120,20 @@ socket.on("connect", () => {
   });
 });
 
-socket.on(EVENTS.PLAYER_JOINED, ({ playerId, name, color }) => {
+socket.on(EVENTS.PLAYER_JOINED, ({ playerId, name, color, look }) => {
   const known = players.get(playerId);
-  if (known) Object.assign(known, { name, connected: true });
-  else players.set(playerId, { id: playerId, name, color, connected: true, input: {} });
+  if (known) Object.assign(known, { name, connected: true, look: cleanLook(look) });
+  else players.set(playerId, { id: playerId, name, color, look: cleanLook(look), connected: true, input: {} });
   renderLobby();
   socket.emit(EVENTS.GAME_PHASE, { phase, game: selectedGame }); // tell the (re)joined phone where we are
+});
+
+// the phone changed its character in the lobby
+socket.on(EVENTS.PLAYER_LOOK, ({ playerId, look }) => {
+  const p = players.get(playerId);
+  if (!p) return;
+  p.look = cleanLook(look);
+  renderLobby();
 });
 
 socket.on(EVENTS.PLAYER_LEFT, ({ playerId }) => {
@@ -137,6 +152,7 @@ socket.on(EVENTS.INPUT, ({ playerId, btn, down }) => {
 });
 
 // --- race flow ---
+const withLook = (p) => ({ ...p, look: resolveLook(p.look, p.color) });
 function startRace() {
   if (selectedGame === "fight") startFight();
   else startKart();
@@ -152,10 +168,11 @@ function startFight() {
     id: `ai${i + 1}`,
     name: `AI ${i + 1}`,
     color: free[i] ?? KART_COLORS[i],
+    look: botLook(i, free[i] ?? KART_COLORS[i]),
     bot: true,
     skill: 0.7 + 0.1 * i,
   }));
-  fight = new FightGame([...humans, ...bots]);
+  fight = new FightGame([...humans.map(withLook), ...bots]);
   fightView.prepare(fight);
   audio.unlock();
   lastSent.clear();
@@ -177,11 +194,12 @@ function startKart() {
     id: `ai${i + 1}`,
     name: `AI ${i + 1}`,
     color: free[i] ?? KART_COLORS[i],
+    look: botLook(i, free[i] ?? KART_COLORS[i]),
     bot: true,
     skill: 0.88 + 0.04 * i,
   }));
 
-  race = new Race([...humans, ...bots], track, laps);
+  race = new Race([...humans.map(withLook), ...bots], track, laps);
   gfx.setRace(race);
   hud = createHud($("hud"), race.karts, track);
   audio.unlock();
