@@ -493,6 +493,34 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+// --- leaving a game: the button shows when the mouse moves, and needs a second press to confirm ---
+let menuTimer = null;
+let menuArmed = false;
+function hideMenuBtn() {
+  $("menuBtn").classList.add("hidden");
+  $("menuBtn").textContent = "BACK TO LOBBY (ESC)";
+  menuArmed = false;
+}
+function showMenuBtn() {
+  if (phase === "lobby") return;
+  $("menuBtn").classList.remove("hidden");
+  clearTimeout(menuTimer);
+  menuTimer = setTimeout(hideMenuBtn, 3000);
+}
+function leaveGame() {
+  if (phase === "lobby") return;
+  if (!menuArmed) {
+    menuArmed = true;
+    $("menuBtn").textContent = "PRESS AGAIN TO LEAVE";
+    showMenuBtn();
+    return;
+  }
+  hideMenuBtn();
+  backToLobby();
+}
+window.addEventListener("pointermove", showMenuBtn);
+$("menuBtn").addEventListener("click", leaveGame);
+
 // --- controls on the host computer ---
 window.addEventListener("pointerdown", () => audio.unlock());
 $("startBtn").addEventListener("click", startRace);
@@ -506,7 +534,9 @@ $("gamePrev").addEventListener("click", () => selectGame(-1));
 $("gameNext").addEventListener("click", () => selectGame(1));
 window.addEventListener("keydown", (e) => {
   audio.unlock();
-  if (e.code === "KeyP") {
+  if (e.code === "Escape") {
+    leaveGame();
+  } else if (e.code === "KeyP") {
     perfOn = !perfOn;
     $("perf").classList.toggle("hidden", !perfOn);
   } else if (e.code === "KeyM") {
