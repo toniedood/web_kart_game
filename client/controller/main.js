@@ -106,11 +106,27 @@ socket.on("connect", () => {
 // --- buttons ---
 const held = new Set();
 
+// Phone feedback: vibration where the browser allows it (Android); iPhone Safari has no vibrate(),
+// but a hidden "switch" checkbox gives a tap when it is toggled from a touch (iOS 18+).
+let tickLabel = null;
+function haptic(ms) {
+  if (navigator.vibrate) return navigator.vibrate(ms);
+  try {
+    if (!tickLabel) {
+      tickLabel = document.createElement("label");
+      tickLabel.style.cssText = "position:fixed;left:-99px;top:-99px;opacity:0;pointer-events:none";
+      tickLabel.innerHTML = '<input type="checkbox" switch>';
+      document.body.append(tickLabel);
+    }
+    tickLabel.click();
+  } catch {}
+}
+
 function send(button, down) {
   if (down === button.classList.contains("down")) return;
   button.classList.toggle("down", down);
   socket.emit(EVENTS.INPUT, { btn: button.dataset.btn, down });
-  if (down) navigator.vibrate?.(10);
+  if (down) haptic(dpad.contains(button) ? 6 : 14);
 }
 
 for (const button of padScreen.querySelectorAll("button")) {
@@ -125,32 +141,66 @@ for (const button of padScreen.querySelectorAll("button")) {
   button.addEventListener("contextmenu", (e) => e.preventDefault());
 }
 
-// The D-pad is one touch area: sliding the thumb across it switches between left and right.
+// The D-pad is a floating joystick (like Brawl Stars): touch anywhere in its area, the pad appears under
+// the thumb and the stick follows. Pushing past the dead zone presses the direction buttons (8 ways).
+const wrap = $("dpadWrap");
 const dpad = $("dpad");
 const dirButtons = Object.fromEntries(["left", "right", "up", "down"].map((d) => [d, dpad.querySelector(`[data-btn="${d}"]`)]));
-function steerFrom(e) {
-  const r = dpad.getBoundingClientRect();
-  const dx = (e.clientX - (r.left + r.width / 2)) / r.width;
-  const dy = (e.clientY - (r.top + r.height / 2)) / r.height;
-  send(dirButtons.left, dx < -0.1);
-  send(dirButtons.right, dx > 0.1);
-  send(dirButtons.up, dy < -0.1);
-  send(dirButtons.down, dy > 0.1);
+let stick = null; // { id, x, y } = the pointer and where the thumb first landed
+
+function setVars(vars) {
+  for (const [k, v] of Object.entries(vars)) dpad.style.setProperty(k, `${v}px`);
 }
-dpad.addEventListener("pointerdown", (e) => {
-  dpad.setPointerCapture(e.pointerId);
-  steerFrom(e);
+function stickStart(e) {
+  const r = wrap.getBoundingClientRect();
+  const half = dpad.offsetWidth / 2;
+  // keep the whole picture inside the touch area
+  const x = Math.min(Math.max(e.clientX, r.left + half), r.right - half);
+  const y = Math.min(Math.max(e.clientY, r.top + half), r.bottom - half);
+  // directions are measured from where the thumb landed; the picture may sit a bit off to stay on screen
+  stick = { id: e.pointerId, x: e.clientX, y: e.clientY, offX: e.clientX - x, offY: e.clientY - y };
+  dpad.classList.remove("glide");
+  dpad.classList.add("live");
+  setVars({ "--jx": x - (r.left + r.width / 2), "--jy": y - (r.top + r.height / 2), "--kx": stick.offX, "--ky": stick.offY });
+  haptic(8);
+}
+function stickMove(e) {
+  const max = dpad.offsetWidth * 0.32;
+  let dx = e.clientX - stick.x;
+  let dy = e.clientY - stick.y;
+  const len = Math.hypot(dx, dy);
+  const k = len > max ? max / len : 1;
+  setVars({ "--kx": dx * k + stick.offX, "--ky": dy * k + stick.offY });
+  const active = len > max * 0.3;
+  const nx = active ? dx / len : 0;
+  const ny = active ? dy / len : 0;
+  send(dirButtons.left, nx < -0.38);
+  send(dirButtons.right, nx > 0.38);
+  send(dirButtons.up, ny < -0.38);
+  send(dirButtons.down, ny > 0.38);
+}
+function stickEnd() {
+  stick = null;
+  dpad.classList.add("glide");
+  dpad.classList.remove("live");
+  setVars({ "--jx": 0, "--jy": 0, "--kx": 0, "--ky": 0 });
+  for (const b of Object.values(dirButtons)) send(b, false);
+}
+wrap.addEventListener("pointerdown", (e) => {
+  if (stick) return;
+  wrap.setPointerCapture(e.pointerId);
+  stickStart(e);
+  stickMove(e);
 });
-dpad.addEventListener("pointermove", (e) => dpad.hasPointerCapture(e.pointerId) && steerFrom(e));
+wrap.addEventListener("pointermove", (e) => stick && e.pointerId === stick.id && stickMove(e));
 for (const type of ["pointerup", "pointercancel"]) {
-  dpad.addEventListener(type, () => {
-    for (const b of Object.values(dirButtons)) send(b, false);
-  });
+  wrap.addEventListener(type, (e) => stick && e.pointerId === stick.id && stickEnd());
 }
-dpad.addEventListener("contextmenu", (e) => e.preventDefault());
+wrap.addEventListener("contextmenu", (e) => e.preventDefault());
 
 function releaseAll() {
   for (const button of held) send(button, false);
+  if (stick) stickEnd();
 }
 window.addEventListener("blur", releaseAll);
 document.addEventListener("visibilitychange", () => document.hidden && releaseAll());
@@ -337,6 +387,7 @@ function setGameUi(game = "kart") {
 
 socket.on(EVENTS.GAME_PHASE, ({ phase, game }) => {
   setGameUi(game);
+  lastHp = Infinity;
   $("phase").textContent = PHASE_TEXT[phase] ?? phase;
   if (phase === "lobby") {
     $("lap").textContent = "-";
@@ -344,6 +395,14 @@ socket.on(EVENTS.GAME_PHASE, ({ phase, game }) => {
     $("item").textContent = "-";
   }
 });
+
+let lastHp = Infinity;
+function flash(cls) {
+  const lcd = $("lcd");
+  lcd.classList.remove(cls);
+  void lcd.offsetWidth; // restart the animation
+  lcd.classList.add(cls);
+}
 
 const ITEM_NAMES = { boost: "BOOST", banana: "BANANA", rocket: "ROCKET" };
 
@@ -354,7 +413,9 @@ socket.on(EVENTS.PLAYER_FEEDBACK, ({ lap, position, item, hp, wins, ammo, vibrat
   if (hp !== undefined) $("lap").textContent = hp;
   if (wins !== undefined) $("pos").textContent = wins;
   if (item !== undefined) $("item").textContent = ITEM_NAMES[item] ?? "-";
-  if (vibrate) navigator.vibrate?.(vibrate);
+  if (vibrate) haptic(vibrate);
+  if (vibrate || (hp !== undefined && hp < lastHp)) flash("hit");
+  if (hp !== undefined) lastHp = hp;
 });
 
 socket.on(EVENTS.ROOM_CLOSED, () => {

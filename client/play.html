@@ -59,16 +59,22 @@
         grid-template-columns: 34vmin 1fr 42vmin; grid-template-rows: 1fr;
         grid-template-areas: "dpad middle ab"; }
       #pad.active { display: grid; }
-      #dpadWrap { grid-area: dpad; display: flex; align-items: center; justify-content: center; }
+      #dpadWrap { grid-area: dpad; position: relative; touch-action: none; -webkit-user-select: none; user-select: none; }
       #middle { grid-area: middle; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 2vmin; }
       #ab { grid-area: ab; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3vmin; touch-action: none; }
       .cluster { position: relative; width: calc(var(--abs) * 1.6); height: calc(var(--abs) * 2 + 20vmin); }
 
-      #dpad { position: relative; width: var(--dp); height: var(--dp); touch-action: none; }
+      /* floating joystick: the D-pad picture appears under the thumb and the hub is the stick */
+      #dpad { position: absolute; left: 50%; top: 50%; width: var(--dp); height: var(--dp); pointer-events: none;
+        transform: translate(calc(-50% + var(--jx, 0px)), calc(-50% + var(--jy, 0px))); }
+      #dpad.glide { transition: transform 0.12s ease-out; }
+      #dpad.live { filter: brightness(1.12); }
+      #dpad .hub { transform: translate(var(--kx, 0px), var(--ky, 0px)); }
       #dpad::before, #dpad::after { content: ""; position: absolute; background: var(--dpad); box-shadow: inset 0.6vmin 0.6vmin 0 var(--dpad-hi), inset -0.6vmin -0.6vmin 0 var(--dpad-lo), 0 0.5vmin 0 rgba(0, 0, 0, 0.35); }
       #dpad::before { left: 0; right: 0; top: 33%; bottom: 33%; border-radius: 1.4vmin; }
       #dpad::after { top: 0; bottom: 0; left: 33%; right: 33%; border-radius: 1.4vmin; }
-      #dpad .hub { position: absolute; left: 38%; right: 38%; top: 38%; bottom: 38%; background: var(--dpad-lo); border-radius: 50%; z-index: 2; box-shadow: inset 0 0.4vmin 0 rgba(0, 0, 0, 0.5); }
+      #dpad .hub { position: absolute; left: 34%; right: 34%; top: 34%; bottom: 34%; background: radial-gradient(circle at 35% 30%, var(--dpad-hi), var(--dpad) 60%, var(--dpad-lo)); border-radius: 50%; z-index: 4; box-shadow: 0 0.6vmin 0 rgba(0, 0, 0, 0.45), inset 0 0.3vmin 0 rgba(255, 255, 255, 0.15); }
+      #dpad.live .hub { background: radial-gradient(circle at 35% 30%, #fff3a0, #ffd200 60%, #b88a00); }
       #dpad button { position: absolute; z-index: 3; background: transparent; border: 0; padding: 0; pointer-events: none; }
       #dpad button[data-btn="left"], #dpad button[data-btn="right"] { top: 30%; bottom: 30%; width: 36%; }
       #dpad button[data-btn="up"], #dpad button[data-btn="down"] { left: 30%; right: 30%; height: 36%; }
@@ -107,6 +113,11 @@
       .abtn button.down { transform: translateY(0.8vmin); box-shadow: 0 0.2vmin 0 var(--ab-dark); filter: brightness(0.85); }
       .abtn .tag { font-size: 3vmin; color: #2d3a8c; font-style: italic; font-weight: bold; text-align: center; }
       .abtn .tag small { display: block; font-size: 1.3vmin; font-style: normal; color: #55536a; margin-top: 0.4vmin; }
+
+      @keyframes lcdhit { 0% { filter: invert(1); transform: translateX(-0.8vmin); } 35% { filter: invert(1); transform: translateX(0.8vmin); } 70% { filter: none; transform: translateX(-0.4vmin); } 100% { filter: none; transform: none; } }
+      .lcd.hit { animation: lcdhit 0.28s linear; }
+      @keyframes lcdpop { 0% { transform: scale(1.18); } 100% { transform: none; } }
+      .lcd b.pop { display: inline-block; animation: lcdpop 0.25s ease-out; }
 
       #speaker { position: absolute; right: 3vmin; bottom: 2.4vmin; width: 14vmin; height: 8vmin; transform: rotate(-30deg); background: repeating-linear-gradient(90deg, var(--body-dark) 0 0.9vmin, transparent 0.9vmin 2vmin); border-radius: 1vmin; opacity: 0.8; pointer-events: none; }
 
