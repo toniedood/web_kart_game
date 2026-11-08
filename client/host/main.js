@@ -203,8 +203,10 @@ async function onSignal({ playerId, data }) {
       link.channel = e.channel;
       e.channel.onmessage = (m) => {
         const msg = JSON.parse(m.data);
-        if (msg.pong) link.rtt = Math.round(performance.now() - msg.pong);
-        else applyInput(playerId, msg.btn, msg.down);
+        if (msg.pong) {
+          const rtt = performance.now() - msg.pong;
+          link.rtt = link.rtt == null ? rtt : link.rtt * 0.9 + rtt * 0.1; // smoothed, because it is sampled 20 times a second
+        } else applyInput(playerId, msg.btn, msg.down);
       };
     };
     await pc.setRemoteDescription(data.sdp);
@@ -215,11 +217,13 @@ async function onSignal({ playerId, data }) {
   }
 }
 socket.on(EVENTS.RTC_SIGNAL, (msg) => onSignal(msg).catch((err) => console.warn("rtc", err)));
+// 20 pings a second: tiny, and the steady traffic stops a phone's Wi-Fi power saving from putting its radio
+// to sleep between button presses (which adds tens of ms to the first message after a pause)
 setInterval(() => {
   for (const { channel } of links.values()) {
     if (channel?.readyState === "open") channel.send(JSON.stringify({ ping: performance.now() }));
   }
-}, 1000);
+}, 50);
 
 // --- race flow ---
 const withLook = (p) => ({ ...p, look: resolveLook(p.look, p.color) });
@@ -498,7 +502,7 @@ function updatePerf(now) {
   frames += 1;
   if (now - fpsSince < 1000) return;
   const direct = [...links.values()].filter((l) => l.channel?.readyState === "open");
-  const rtt = direct.length ? Math.max(...direct.map((l) => l.rtt ?? 0)) : "-";
+  const rtt = direct.length ? Math.round(Math.max(...direct.map((l) => l.rtt ?? 0))) : "-";
   $("perf").textContent = `FPS ${frames}  SERVER ${ping ?? "-"} MS  DIRECT ${direct.length}/${players.size} ${rtt} MS`;
   frames = 0;
   fpsSince = now;
