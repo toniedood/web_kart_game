@@ -12,6 +12,8 @@ import { createAudio } from "./audio.js";
 import { colourLogos } from "../shared/logo.js";
 import { FightGame } from "./fight/game.js";
 import { createFightView } from "./fight/view.js";
+import { ShooterGame } from "./shooter/game.js";
+import { createShooterView } from "./shooter/view.js";
 import { headshot } from "./fight/sprites.js";
 import { cleanLook, resolveLook, botLook } from "../shared/look.js";
 
@@ -27,14 +29,18 @@ const socket = io({ transports: ["websocket"] }); // websocket only: skips the s
 const gfx = createGfx($("game"));
 const audio = createAudio();
 const fightView = createFightView($("fight"));
+const shooterView = createShooterView($("shooter"));
 
 // the games in the console menu
 const GAMES = {
   kart: { name: "KART RACE", ai: "AI KARTS", min: 1 },
   fight: { name: "NEON BRAWL", ai: "AI FIGHTERS", min: 2 },
+  shooter: { name: "HELL KEEP", ai: "AI PLAYERS", min: 2 },
 };
-let selectedGame = params.get("game") === "fight" ? "fight" : "kart"; // dev: /?game=fight
+let selectedGame = params.get("game") in GAMES ? params.get("game") : "kart"; // dev: /?game=fight or /?game=shooter
 let fight = null;
+let shooter = null;
+let attract = null; // bots playing Hell Keep behind the lobby
 
 // players: id -> { id, name, color, connected, input: { left, right, gas, brake, item } }
 // (phones only; AI karts are added when a race starts)
@@ -72,7 +78,7 @@ function renderLobby() {
   $("aiLabel").textContent = GAMES[selectedGame].ai;
   $("tagline").textContent = GAMES[selectedGame].name;
   $("rowTrack").classList.toggle("hidden", selectedGame !== "kart");
-  $("startBtn").textContent = selectedGame === "kart" ? "Start race" : "Start fight";
+  $("startBtn").textContent = { kart: "Start race", fight: "Start fight", shooter: "Start game" }[selectedGame];
   $("startBtn").disabled = humans + ai < GAMES[selectedGame].min;
 }
 
@@ -98,10 +104,27 @@ function selectGame(delta) {
 
 // which big canvas is visible behind the lobby
 function showGameView() {
-  const fightOn = selectedGame === "fight";
-  $("fight").classList.toggle("hidden", !fightOn);
-  $("game").classList.toggle("hidden", fightOn);
-  $("ground").classList.toggle("hidden", fightOn || phase !== "lobby");
+  $("fight").classList.toggle("hidden", selectedGame !== "fight");
+  $("shooter").classList.toggle("hidden", selectedGame !== "shooter");
+  $("game").classList.toggle("hidden", selectedGame !== "kart");
+  $("ground").classList.toggle("hidden", selectedGame !== "kart" || phase !== "lobby");
+  if (selectedGame === "shooter" && phase === "lobby" && !shooter) startAttract();
+  else attract = null;
+}
+
+// four bots fight in Hell Keep while the lobby is open
+function startAttract() {
+  const bots = Array.from({ length: 4 }, (_, i) => ({
+    id: `demo${i}`,
+    name: `BOT ${i + 1}`,
+    color: KART_COLORS[i],
+    look: resolveLook(botLook(i, KART_COLORS[i]), KART_COLORS[i]),
+    bot: true,
+    skill: 0.7,
+  }));
+  attract = new ShooterGame(bots);
+  attract.phase = "play";
+  shooterView.prepare(attract);
 }
 
 function setPhase(next) {
@@ -155,7 +178,33 @@ socket.on(EVENTS.INPUT, ({ playerId, btn, down }) => {
 const withLook = (p) => ({ ...p, look: resolveLook(p.look, p.color) });
 function startRace() {
   if (selectedGame === "fight") startFight();
+  else if (selectedGame === "shooter") startShooter();
   else startKart();
+}
+
+function startShooter() {
+  if (phase !== "lobby" && phase !== "results") return;
+  const humans = [...players.values()].filter((p) => p.connected).slice(0, MAX_PLAYERS);
+  const ai = Math.max(0, Math.min(aiCount, MAX_PLAYERS - humans.length));
+  if (humans.length + ai < GAMES.shooter.min) return;
+  const free = KART_COLORS.filter((c) => !humans.some((p) => p.color === c));
+  const bots = Array.from({ length: ai }, (_, i) => ({
+    id: `ai${i + 1}`,
+    name: `AI ${i + 1}`,
+    color: free[i] ?? KART_COLORS[i],
+    look: botLook(i, free[i] ?? KART_COLORS[i]),
+    bot: true,
+    skill: 0.6 + 0.1 * i,
+  }));
+  shooter = new ShooterGame([...humans.map(withLook), ...bots].map((p) => ({ ...p, look: resolveLook(p.look, p.color) })));
+  attract = null;
+  shooterView.prepare(shooter);
+  audio.unlock();
+  lastSent.clear();
+  $("lobby").classList.add("hidden");
+  $("ground").classList.add("hidden");
+  $("results").classList.add("hidden");
+  setPhase("countdown");
 }
 
 function startFight() {
@@ -216,6 +265,7 @@ function backToLobby() {
   audio.stopEngines();
   race = null;
   fight = null;
+  shooter = null;
   hud = null;
   $("hud").innerHTML = "";
   $("banner").textContent = "";
@@ -238,6 +288,16 @@ function formatTime(seconds) {
 function showResults() {
   const list = $("standings");
   list.innerHTML = "";
+  if (shooter) {
+    for (const p of shooter.ranked) {
+      const li = document.createElement("li");
+      li.innerHTML = `<span class="dot" style="background:${p.color}"></span>`;
+      li.append(`${p.name} ${p.frags} FRAGS`);
+      list.append(li);
+    }
+    $("results").classList.remove("hidden");
+    return;
+  }
   if (fight) {
     for (const f of fight.ranked) {
       const li = document.createElement("li");
@@ -323,7 +383,41 @@ function tickFight() {
   }
 }
 
+function tickShooter() {
+  for (const p of shooter.players) p.connected = p.bot || (players.get(p.id)?.connected ?? false);
+  shooter.update(STEP, (p) => (players.get(p.id)?.connected ? players.get(p.id).input : NO_INPUT));
+  for (const p of shooter.players) {
+    if (p.bot) continue;
+    const key = `${p.hp}/${p.frags}/${p.ammo}/${p.weapon}`;
+    if (lastSent.get(p.id) === key) continue;
+    lastSent.set(p.id, key);
+    socket.emit(EVENTS.PLAYER_FEEDBACK, { playerId: p.id, hp: p.hp, wins: p.frags, ammo: p.weapon === 0 ? p.ammo : "INF" });
+  }
+  for (const e of shooter.events) {
+    shooterView.onEvent(e);
+    audio.handle(e);
+    const human = (id) => players.has(id);
+    if (e.type === "hurt" && human(e.id)) socket.emit(EVENTS.PLAYER_FEEDBACK, { playerId: e.id, vibrate: 80 });
+    if (e.type === "ko" && human(e.id)) socket.emit(EVENTS.PLAYER_FEEDBACK, { playerId: e.id, vibrate: [200, 100, 200] });
+  }
+  shooter.events.length = 0;
+  const next = { intro: "countdown", play: "race", results: "results" }[shooter.phase];
+  if (next !== phase) {
+    if (next === "results") showResults();
+    setPhase(next);
+  }
+}
+
 function tick() {
+  if (shooter) {
+    tickShooter();
+    return;
+  }
+  if (attract) {
+    attract.update(STEP, () => NO_INPUT);
+    attract.events.length = 0;
+    for (const p of attract.players) if (!p.alive) p.respawn = Math.min(p.respawn, 1);
+  }
   if (fight) {
     tickFight();
     return;
@@ -379,12 +473,16 @@ function frame(now) {
     tick();
     acc -= STEP;
   }
-  if (fight) {
+  if (shooter) {
+    shooterView.draw(shooter, dt, now / 1000);
+  } else if (fight) {
     fightView.draw(fight, dt, now / 1000);
   } else if (race) {
     gfx.renderRace(race, dt);
     hud.update(race);
     audio.updateEngines(race.karts, race.phase);
+  } else if (selectedGame === "shooter") {
+    shooterView.draw(attract, dt, now / 1000);
   } else if (selectedGame === "fight") {
     fightView.draw(null, dt, now / 1000);
   } else {
@@ -424,7 +522,7 @@ window.addEventListener("keydown", (e) => {
   else if (e.code === "KeyL" && phase === "results") backToLobby();
 });
 
-window.kartDebug = { audio, getRace: () => race, getFight: () => fight }; // dev: poke at things from the console
+window.kartDebug = { audio, getRace: () => race, getFight: () => fight, getShooter: () => shooter }; // dev: poke at things from the console
 
 selectTrack(0); // builds the first track (or the one in ?track=) and draws the lobby
 showGameView();

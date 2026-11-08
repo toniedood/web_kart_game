@@ -40,7 +40,7 @@
       .btn.small { padding: 0.9vmin 1.4vmin; font-size: 1.6vmin; }
       #startBtn, #rematchBtn { font-size: 2.4vmin; width: 100%; margin-top: 1vmin; }
       #lobbyBtn { font-size: 1.6vmin; width: 100%; margin-top: 2vmin; }
-      #fight { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; background: #000; }
+      #fight, #shooter { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; background: #000; }
       .hint { color: var(--grey); font-size: 1vmin; line-height: 1.6; margin: 1.6vmin 0 0; }
       #results { min-width: 56vmin; }
       #results h1 { margin: 0; font-size: 4vmin; }
@@ -60,6 +60,7 @@
   <body>
     <canvas id="game"></canvas>
     <canvas id="fight" class="hidden"></canvas>
+    <canvas id="shooter" class="hidden"></canvas>
     <div id="hud"></div>
     <div id="banner"></div>
     <div id="perf" class="hidden"></div>

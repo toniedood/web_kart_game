@@ -19,7 +19,7 @@ function shade(ramp, nx, ny, r2) {
   return ramp[k];
 }
 
-function ell(g, cx, cy, rx, ry, ramp) {
+export function ell(g, cx, cy, rx, ry, ramp) {
   for (let j = Math.floor(cy - ry); j <= cy + ry; j++) {
     for (let i = Math.floor(cx - rx); i <= cx + rx; i++) {
       const nx = (i + 0.5 - cx) / rx;
@@ -31,7 +31,7 @@ function ell(g, cx, cy, rx, ry, ramp) {
 }
 
 // a thick line with round ends; radius changes from ra to rb
-function cap(g, ax, ay, bx, by, ra, rb, ramp) {
+export function cap(g, ax, ay, bx, by, ra, rb, ramp) {
   const minx = Math.floor(Math.min(ax - ra, bx - rb));
   const maxx = Math.ceil(Math.max(ax + ra, bx + rb));
   const miny = Math.floor(Math.min(ay - ra, by - rb));

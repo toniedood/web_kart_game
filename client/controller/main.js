@@ -322,6 +322,7 @@ $("resetStyle").addEventListener("click", () => {
 const GAME_UI = {
   kart: { a: "LAP", b: "POS", gas: "GAS", brake: "BRAKE", item: "ITEM" },
   fight: { a: "HP", b: "WINS", gas: "PUNCH", brake: "JUMP", item: "BLOCK" },
+  shooter: { a: "HP", b: "FRAGS", c: "AMMO:", gas: "FIRE", brake: "STRAFE", item: "WEAPON" },
 };
 function setGameUi(game = "kart") {
   const ui = GAME_UI[game] ?? GAME_UI.kart;
@@ -330,7 +331,8 @@ function setGameUi(game = "kart") {
   $("capGas").textContent = ui.gas;
   $("capBrake").textContent = ui.brake;
   $("itemBtn").textContent = ui.item;
-  $("itemRow").classList.toggle("hidden", game !== "kart");
+  $("lblC").textContent = ui.c ?? "ITEM:";
+  $("itemRow").classList.toggle("hidden", game !== "kart" && game !== "shooter");
 }
 
 socket.on(EVENTS.GAME_PHASE, ({ phase, game }) => {
@@ -345,7 +347,8 @@ socket.on(EVENTS.GAME_PHASE, ({ phase, game }) => {
 
 const ITEM_NAMES = { boost: "BOOST", banana: "BANANA", rocket: "ROCKET" };
 
-socket.on(EVENTS.PLAYER_FEEDBACK, ({ lap, position, item, hp, wins, vibrate }) => {
+socket.on(EVENTS.PLAYER_FEEDBACK, ({ lap, position, item, hp, wins, ammo, vibrate }) => {
+  if (ammo !== undefined) $("item").textContent = ammo;
   if (lap !== undefined) $("lap").textContent = lap;
   if (position !== undefined) $("pos").textContent = position;
   if (hp !== undefined) $("lap").textContent = hp;

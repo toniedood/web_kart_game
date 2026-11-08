@@ -106,6 +106,21 @@ export function createAudio() {
         noise(0.4, 0.25 + event.level * 0.1, 3000);
         tone(300, 0.4, { type: "square", volume: 0.1, slideTo: 600 * event.level });
         break;
+      case "shot":
+        if (event.weapon === 0) {
+          noise(0.35, 0.6, 1400);
+          tone(110, 0.3, { type: "sawtooth", volume: 0.3, slideTo: 40 });
+        } else {
+          noise(0.12, 0.35, 3000);
+          tone(420, 0.1, { type: "square", volume: 0.16, slideTo: 140 });
+        }
+        break;
+      case "switch":
+        tone(500, 0.05, { type: "square", volume: 0.1 });
+        break;
+      case "respawn":
+        tone(300, 0.2, { type: "triangle", volume: 0.15, slideTo: 700 });
+        break;
       case "swing":
         noise(0.12, 0.12, 4000);
         tone(event.kind === "kick" ? 260 : 340, 0.1, { type: "triangle", volume: 0.08, slideTo: 140 });
