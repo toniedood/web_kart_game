@@ -38,7 +38,8 @@ if DIST.is_dir():
         return FileResponse(DIST / "play.html")
 
 
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+# no compression: the messages are tiny, and compressing them only adds delay
+sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*", http_compression=False)
 app = socketio.ASGIApp(sio, other_asgi_app=fastapi_app)
 
 # rooms[code] = {"host": sid, "players": {playerId: {"sid", "name", "color"}}}
@@ -139,6 +140,23 @@ async def on_input(sid, data):
         {"playerId": session["playerId"], "btn": data.get("btn"), "down": bool(data.get("down"))},
         to=room["host"],
     )
+
+
+@sio.on(ev.RTC_SIGNAL)
+async def on_rtc_signal(sid, data):
+    """Pass WebRTC set-up messages along: phone -> host, and host -> the phone named in `playerId`."""
+    session = sessions.get(sid)
+    if session is None or not isinstance(data, dict):
+        return
+    room = rooms.get(session["code"])
+    if room is None:
+        return
+    if session["playerId"] is not None:
+        await sio.emit(ev.RTC_SIGNAL, {"playerId": session["playerId"], "data": data.get("data")}, to=room["host"])
+    else:
+        player = room["players"].get(data.get("playerId"))
+        if player:
+            await sio.emit(ev.RTC_SIGNAL, {"data": data.get("data")}, to=player["sid"])
 
 
 @sio.on(ev.GAME_PHASE)

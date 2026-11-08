@@ -1,6 +1,6 @@
 import { io } from "socket.io-client";
 import QRCode from "qrcode";
-import { EVENTS } from "../shared/events.js";
+import { EVENTS, RTC_CONFIG } from "../shared/events.js";
 import { STEP, LAPS, MAX_PLAYERS } from "./config.js";
 import { TRACKS } from "./tracks.js";
 import { buildTrack } from "./track.js";
@@ -163,16 +163,63 @@ socket.on(EVENTS.PLAYER_LEFT, ({ playerId }) => {
   const p = players.get(playerId);
   if (!p) return;
   p.input = {};
+  closeLink(playerId);
   // a refreshing phone leaves and comes back: during a race keep its kart
   if (phase === "lobby") players.delete(playerId);
   else p.connected = false;
   renderLobby();
 });
 
-socket.on(EVENTS.INPUT, ({ playerId, btn, down }) => {
+function applyInput(playerId, btn, down) {
   const p = players.get(playerId);
   if (p) p.input[btn] = down;
-});
+}
+socket.on(EVENTS.INPUT, ({ playerId, btn, down }) => applyInput(playerId, btn, down));
+
+// --- WebRTC: a direct line to each phone ---
+// The phone sets it up (offer) through the server; after that buttons and feedback skip the server completely.
+// If the direct line is not (yet) open, everything still goes through the server.
+const links = new Map(); // playerId -> { pc, channel, rtt }
+function closeLink(playerId) {
+  const link = links.get(playerId);
+  if (!link) return;
+  links.delete(playerId);
+  link.pc.close();
+}
+function toPhone(data) {
+  const channel = links.get(data.playerId)?.channel;
+  if (channel?.readyState === "open") channel.send(JSON.stringify(data));
+  else socket.emit(EVENTS.PLAYER_FEEDBACK, data);
+}
+async function onSignal({ playerId, data }) {
+  if (!data) return;
+  if (data.sdp?.type === "offer") {
+    closeLink(playerId);
+    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const link = { pc, channel: null, rtt: null };
+    links.set(playerId, link);
+    pc.onicecandidate = (e) => e.candidate && socket.emit(EVENTS.RTC_SIGNAL, { playerId, data: { candidate: e.candidate } });
+    pc.ondatachannel = (e) => {
+      link.channel = e.channel;
+      e.channel.onmessage = (m) => {
+        const msg = JSON.parse(m.data);
+        if (msg.pong) link.rtt = Math.round(performance.now() - msg.pong);
+        else applyInput(playerId, msg.btn, msg.down);
+      };
+    };
+    await pc.setRemoteDescription(data.sdp);
+    await pc.setLocalDescription(await pc.createAnswer());
+    socket.emit(EVENTS.RTC_SIGNAL, { playerId, data: { sdp: pc.localDescription } });
+  } else if (data.candidate) {
+    await links.get(playerId)?.pc.addIceCandidate(data.candidate).catch(() => {});
+  }
+}
+socket.on(EVENTS.RTC_SIGNAL, (msg) => onSignal(msg).catch((err) => console.warn("rtc", err)));
+setInterval(() => {
+  for (const { channel } of links.values()) {
+    if (channel?.readyState === "open") channel.send(JSON.stringify({ ping: performance.now() }));
+  }
+}, 1000);
 
 // --- race flow ---
 const withLook = (p) => ({ ...p, look: resolveLook(p.look, p.color) });
@@ -333,7 +380,7 @@ function sendFeedback() {
     lastSent.set(k.id, key);
     const lapChanged = before !== undefined && before.split("/")[0] !== String(k.lap);
     const vibrate = k.finished ? [150, 80, 150] : lapChanged ? 120 : undefined;
-    socket.emit(EVENTS.PLAYER_FEEDBACK, {
+    toPhone({
       playerId: k.id,
       lap: k.lap,
       position: k.position,
@@ -347,7 +394,7 @@ function sendFeedback() {
 function buzzHits(events) {
   for (const e of events) {
     if (e.type === "hit" && !race.karts.find((k) => k.id === e.id)?.bot) {
-      socket.emit(EVENTS.PLAYER_FEEDBACK, { playerId: e.id, vibrate: 300 });
+      toPhone({ playerId: e.id, vibrate: 300 });
     }
   }
 }
@@ -366,14 +413,14 @@ function tickFight() {
     const key = `${f.hp}/${f.wins}`;
     if (lastSent.get(f.id) === key) continue;
     lastSent.set(f.id, key);
-    socket.emit(EVENTS.PLAYER_FEEDBACK, { playerId: f.id, hp: f.hp, wins: f.wins });
+    toPhone({ playerId: f.id, hp: f.hp, wins: f.wins });
   }
   for (const e of fight.events) {
     fightView.onEvent(e);
     audio.handle(e);
     const human = (id) => players.has(id);
-    if (e.type === "hurt" && human(e.id)) socket.emit(EVENTS.PLAYER_FEEDBACK, { playerId: e.id, vibrate: 120 });
-    if (e.type === "ko" && human(e.id)) socket.emit(EVENTS.PLAYER_FEEDBACK, { playerId: e.id, vibrate: [200, 100, 200] });
+    if (e.type === "hurt" && human(e.id)) toPhone({ playerId: e.id, vibrate: 120 });
+    if (e.type === "ko" && human(e.id)) toPhone({ playerId: e.id, vibrate: [200, 100, 200] });
   }
   fight.events.length = 0;
   const next = { intro: "countdown", fight: "race", roundend: "race", results: "results" }[fight.phase];
@@ -391,14 +438,14 @@ function tickShooter() {
     const key = `${p.hp}/${p.frags}/${p.ammo}/${p.weapon}`;
     if (lastSent.get(p.id) === key) continue;
     lastSent.set(p.id, key);
-    socket.emit(EVENTS.PLAYER_FEEDBACK, { playerId: p.id, hp: p.hp, wins: p.frags, ammo: p.weapon === 0 ? p.ammo : "INF" });
+    toPhone({ playerId: p.id, hp: p.hp, wins: p.frags, ammo: p.weapon === 0 ? p.ammo : "INF" });
   }
   for (const e of shooter.events) {
     shooterView.onEvent(e);
     audio.handle(e);
     const human = (id) => players.has(id);
-    if (e.type === "hurt" && human(e.id)) socket.emit(EVENTS.PLAYER_FEEDBACK, { playerId: e.id, vibrate: 80 });
-    if (e.type === "ko" && human(e.id)) socket.emit(EVENTS.PLAYER_FEEDBACK, { playerId: e.id, vibrate: [200, 100, 200] });
+    if (e.type === "hurt" && human(e.id)) toPhone({ playerId: e.id, vibrate: 80 });
+    if (e.type === "ko" && human(e.id)) toPhone({ playerId: e.id, vibrate: [200, 100, 200] });
   }
   shooter.events.length = 0;
   const next = { intro: "countdown", play: "race", results: "results" }[shooter.phase];
@@ -450,7 +497,9 @@ setInterval(() => {
 function updatePerf(now) {
   frames += 1;
   if (now - fpsSince < 1000) return;
-  $("perf").textContent = `FPS ${frames}  PING ${ping ?? "-"} MS`;
+  const direct = [...links.values()].filter((l) => l.channel?.readyState === "open");
+  const rtt = direct.length ? Math.max(...direct.map((l) => l.rtt ?? 0)) : "-";
+  $("perf").textContent = `FPS ${frames}  SERVER ${ping ?? "-"} MS  DIRECT ${direct.length}/${players.size} ${rtt} MS`;
   frames = 0;
   fpsSince = now;
 }
@@ -552,7 +601,7 @@ window.addEventListener("keydown", (e) => {
   else if (e.code === "KeyL" && phase === "results") backToLobby();
 });
 
-window.kartDebug = { audio, getRace: () => race, getFight: () => fight, getShooter: () => shooter }; // dev: poke at things from the console
+window.kartDebug = { audio, players, links, getRace: () => race, getFight: () => fight, getShooter: () => shooter }; // dev: poke at things from the console
 
 selectTrack(0); // builds the first track (or the one in ?track=) and draws the lobby
 showGameView();

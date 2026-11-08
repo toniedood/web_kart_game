@@ -1,5 +1,5 @@
 import { io } from "socket.io-client";
-import { EVENTS } from "../shared/events.js";
+import { EVENTS, RTC_CONFIG } from "../shared/events.js";
 import { colourLogos } from "../shared/logo.js";
 import { HAIR_STYLES, ACCESSORIES, HAIR_COLORS, SKINS, OUTFITS, cleanLook, resolveLook, randomLook } from "../shared/look.js";
 import { drawFighter, specFromLook, POSES } from "../host/fight/sprites.js";
@@ -63,6 +63,39 @@ try {
 let joined = false;
 let myColor = loadSession()?.color ?? "#e53935"; // the colour the server gave this player, used when the outfit is on AUTO
 
+// --- WebRTC: a direct line to the host screen ---
+// Buttons go over this data channel when it is open (no detour through the server); otherwise over the socket.
+let pc = null;
+let channel = null;
+function openLink() {
+  pc?.close();
+  const mine = new RTCPeerConnection(RTC_CONFIG);
+  pc = mine;
+  channel = null;
+  const ch = mine.createDataChannel("peaky"); // reliable + ordered: a lost "button up" would leave a button stuck
+  ch.onopen = () => (channel = ch);
+  ch.onclose = () => channel === ch && (channel = null);
+  ch.onmessage = (m) => {
+    const msg = JSON.parse(m.data);
+    if (msg.ping) ch.send(JSON.stringify({ pong: msg.ping }));
+    else onFeedback(msg);
+  };
+  mine.onicecandidate = (e) => e.candidate && socket.emit(EVENTS.RTC_SIGNAL, { data: { candidate: e.candidate } });
+  mine
+    .createOffer()
+    .then((offer) => mine.setLocalDescription(offer))
+    .then(() => socket.emit(EVENTS.RTC_SIGNAL, { data: { sdp: mine.localDescription } }))
+    .catch((err) => console.warn("rtc", err));
+}
+socket.on(EVENTS.RTC_SIGNAL, ({ data }) => {
+  if (data?.sdp) pc?.setRemoteDescription(data.sdp).catch(() => {});
+  else if (data?.candidate) pc?.addIceCandidate(data.candidate).catch(() => {});
+});
+socket.on("disconnect", () => {
+  pc?.close();
+  pc = channel = null;
+});
+
 function join(name, saved) {
   socket.emit(
     EVENTS.PLAYER_JOIN,
@@ -82,6 +115,7 @@ function join(name, saved) {
       $("who").textContent = name || "Player";
       $("phase").textContent = PHASE_TEXT.lobby;
       show(padScreen);
+      openLink();
     },
   );
 }
@@ -125,7 +159,9 @@ function haptic(ms) {
 function send(button, down) {
   if (down === button.classList.contains("down")) return;
   button.classList.toggle("down", down);
-  socket.emit(EVENTS.INPUT, { btn: button.dataset.btn, down });
+  const msg = { btn: button.dataset.btn, down };
+  if (channel?.readyState === "open") channel.send(JSON.stringify(msg));
+  else socket.emit(EVENTS.INPUT, msg);
   if (down) haptic(dpad.contains(button) ? 6 : 14);
 }
 
@@ -406,7 +442,8 @@ function flash(cls) {
 
 const ITEM_NAMES = { boost: "BOOST", banana: "BANANA", rocket: "ROCKET" };
 
-socket.on(EVENTS.PLAYER_FEEDBACK, ({ lap, position, item, hp, wins, ammo, vibrate }) => {
+socket.on(EVENTS.PLAYER_FEEDBACK, onFeedback);
+function onFeedback({ lap, position, item, hp, wins, ammo, vibrate }) {
   if (ammo !== undefined) $("item").textContent = ammo;
   if (lap !== undefined) $("lap").textContent = lap;
   if (position !== undefined) $("pos").textContent = position;
@@ -416,7 +453,7 @@ socket.on(EVENTS.PLAYER_FEEDBACK, ({ lap, position, item, hp, wins, ammo, vibrat
   if (vibrate) haptic(vibrate);
   if (vibrate || (hp !== undefined && hp < lastHp)) flash("hit");
   if (hp !== undefined) lastHp = hp;
-});
+}
 
 socket.on(EVENTS.ROOM_CLOSED, () => {
   joined = false;

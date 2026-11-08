@@ -8,6 +8,7 @@ INPUT = "input"
 GAME_PHASE = "game:phase"
 PLAYER_FEEDBACK = "player:feedback"
 ROOM_CLOSED = "room:closed"
+RTC_SIGNAL = "rtc:signal"  # WebRTC set-up messages (offer / answer / ICE), relayed between one phone and the host
 
 MAX_PLAYERS = 4
 CODE_LENGTH = 4

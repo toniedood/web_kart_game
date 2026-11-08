@@ -15,4 +15,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY server ./server
 COPY --from=web /app/dist ./dist
 # Render sets $PORT. One worker only: rooms live in this process's memory.
-CMD ["sh", "-c", "uvicorn server.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn server.main:app --host 0.0.0.0 --port ${PORT:-8000} --ws-per-message-deflate false"]
