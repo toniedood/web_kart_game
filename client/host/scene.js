@@ -1,7 +1,10 @@
 import * as THREE from "three";
 import { STUN_TIME } from "./physics.js";
 
-const HORIZON = 0xcfe8f5;
+const HORIZON = 0xa4d0fc;
+
+// The 3D view is drawn small and scaled up with hard pixels. Bigger number = chunkier pixels.
+const PIXEL_ROWS = 270; // internal height of the whole screen, in pixels
 
 // Viewport rectangles as fractions of the screen: [x, y, w, h], y counted from the bottom.
 // 1 player: full screen. 2 players: top/bottom halves. 3-4 players: quarters.
@@ -342,19 +345,19 @@ function disposeGroup(group) {
 }
 
 export function createGfx(canvas) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+  renderer.setPixelRatio(1);
+  const size = { w: 480, h: 270 }; // internal resolution, set in resize()
   renderer.setClearColor(0x000000);
 
   const scene = new THREE.Scene();
   scene.background = canvasTexture(2, 256, (ctx, w, h) => {
-    const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, "#3f86d6");
-    g.addColorStop(0.55, "#8ec5ee");
-    g.addColorStop(0.72, "#cfe8f5");
-    g.addColorStop(1, "#cfe8f5");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
+    // flat colour bands, like an 8-bit sky
+    const bands = ["#5c94fc", "#5c94fc", "#6ca0fc", "#80b0fc", "#94c0fc", "#a4d0fc", "#a4d0fc", "#a4d0fc"];
+    bands.forEach((c, i) => {
+      ctx.fillStyle = c;
+      ctx.fillRect(0, (i * h) / bands.length, w, h / bands.length + 1);
+    });
   });
   scene.fog = new THREE.Fog(HORIZON, 90, 440);
   scene.add(new THREE.HemisphereLight(0xffffff, 0x446644, 1.6));
@@ -378,7 +381,10 @@ export function createGfx(canvas) {
   scene.add(kartLayer);
 
   function resize() {
-    renderer.setSize(window.innerWidth, window.innerHeight, false);
+    const aspect = window.innerWidth / window.innerHeight;
+    size.h = PIXEL_ROWS;
+    size.w = Math.round(PIXEL_ROWS * aspect);
+    renderer.setSize(size.w, size.h, false); // canvas CSS stays 100%, so the browser scales it up
   }
   window.addEventListener("resize", resize);
   resize();
@@ -461,8 +467,8 @@ export function createGfx(canvas) {
     scene.fog.far = 440; // the lobby fly-over is much further out and uses a clear view
     scene.fog.near = 90;
     clouds.visible = true;
-    const W = window.innerWidth;
-    const H = window.innerHeight;
+    const W = size.w;
+    const H = size.h;
     const time = performance.now() / 1000;
     karts.forEach((k) => animateKart(k, karts3d.get(k.id), dt, time));
 
@@ -527,12 +533,12 @@ export function createGfx(canvas) {
     scene.fog.far = 6000;
     clouds.visible = false;
     const { cx, cz, radius } = overviewShape;
-    overview.aspect = window.innerWidth / window.innerHeight;
+    overview.aspect = size.w / size.h;
     overview.updateProjectionMatrix();
     overview.position.set(cx + Math.cos(orbit) * radius * 1.0, radius * 0.55, cz + Math.sin(orbit) * radius * 1.0);
     overview.lookAt(cx, 0, cz);
     renderer.setScissorTest(false);
-    renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+    renderer.setViewport(0, 0, size.w, size.h);
     renderer.render(scene, overview);
   }
 

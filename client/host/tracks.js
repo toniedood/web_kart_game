@@ -23,7 +23,7 @@ export const TRACKS = [
       [0, -100], [70, -100], [125, -70], [140, -10], [110, 40], [55, 45],
       [25, 85], [-35, 110], [-100, 85], [-125, 20], [-100, -45], [-55, -90],
     ],
-    theme: { ground: 0x4a9c4a, crown: 0x1f6b2a, trunk: 0x6b4423 },
+    theme: { ground: 0x58d854, crown: 0x00a800, trunk: 0x6b4423 },
   },
   {
     name: "Desert Run",
@@ -32,11 +32,11 @@ export const TRACKS = [
       [95, 30], [70, 75], [85, 125], [40, 165], [-40, 165], [-75, 115],
       [-65, 55], [-115, 25], [-170, 45], [-205, 0], [-190, -65], [-130, -105], [-60, -125],
     ],
-    theme: { ground: 0xd9b36a, crown: 0x6f8f3a, trunk: 0x8a5a2b },
+    theme: { ground: 0xfcc468, crown: 0x00a800, trunk: 0xc84c0c },
   },
   {
     name: "Snow Ring",
     points: snowRing(),
-    theme: { ground: 0xeef4f8, crown: 0x2d6a4f, trunk: 0x5a3d2b },
+    theme: { ground: 0xfcfcfc, crown: 0x005800, trunk: 0x7c2c00 },
   },
 ];

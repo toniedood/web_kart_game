@@ -10,4 +10,4 @@ export const EVENTS = {
   ROOM_CLOSED: "room:closed",
 };
 
-export const BUTTONS = ["left", "right", "gas", "brake", "item"];
+export const BUTTONS = ["left", "right", "up", "down", "gas", "brake", "item"];

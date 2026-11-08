@@ -3,69 +3,93 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Kart Game – Host</title>
+    <title>Peaky Console</title>
+    <link rel="stylesheet" href="/shared/peaky.css" />
     <style>
-      html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; color: #fff; }
-      #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+      #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; }
       #hud { position: fixed; inset: 0; pointer-events: none; }
-      .cell { position: absolute; box-sizing: border-box; border: 1px solid #000; text-shadow: 0 2px 4px #000; font-weight: bold; }
-      .cell .name { position: absolute; top: 0.6vmin; left: 0.8vmin; padding: 0.3vmin 1.2vmin; font-size: 2.4vmin; background: #0008; border-left: 1vmin solid; border-radius: 0.6vmin; }
-      .cell .lap { position: absolute; top: 0.6vmin; right: 1vmin; font-size: 3vmin; }
-      .cell .pos { position: absolute; bottom: 1vmin; left: 1.2vmin; font-size: 5vmin; }
-      .cell .speed { position: absolute; bottom: 1vmin; right: 1.2vmin; font-size: 3vmin; }
-      .cell .done { position: absolute; top: 40%; width: 100%; text-align: center; font-size: 6vmin; color: #ffd54a; }
-      #banner { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 22vmin; font-weight: bold; text-shadow: 0 0.5vmin 2vmin #000; pointer-events: none; }
-      .panel { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); background: #000b; padding: 2vmin 4vmin; border-radius: 2vmin; text-align: center; min-width: 40vmin; }
-      .panel h1 { margin: 0 0 1vmin; font-size: 4vmin; }
-      #code { font-size: 12vmin; letter-spacing: 1.5vmin; line-height: 1.1; }
-      #url { color: #aaa; font-size: 2vmin; margin-bottom: 1vmin; }
-      #players, #standings { list-style: none; padding: 0; margin: 1vmin 0; font-size: 3.4vmin; }
-      #players li, #standings li { margin: 0.6vmin 0; }
+      .cell { position: absolute; box-sizing: border-box; border: 0.4vmin solid #000; text-shadow: 0.35vmin 0.35vmin 0 #000; }
+      .cell .name { position: absolute; top: 0.8vmin; left: 0.8vmin; padding: 0.7vmin 1.2vmin; font-size: 1.6vmin; background: #000b; border-left: 1vmin solid; }
+      .cell .lap { position: absolute; top: 1.2vmin; right: 1vmin; font-size: 2vmin; }
+      .cell .pos { position: absolute; bottom: 1vmin; left: 1.2vmin; font-size: 3.2vmin; color: var(--coin); }
+      .cell .speed { position: absolute; bottom: 1.2vmin; right: 1.2vmin; font-size: 1.8vmin; }
+      .cell .done { position: absolute; top: 40%; width: 100%; text-align: center; font-size: 4vmin; color: var(--coin); }
+      .cell .item { position: absolute; bottom: 1.4vmin; left: 50%; transform: translateX(-50%); font-size: 1.8vmin; white-space: nowrap; color: #58d854; }
+      #banner { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 20vmin; color: var(--coin); text-shadow: 1.2vmin 1.2vmin 0 #000; pointer-events: none; }
+
+      .panel { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 2.4vmin 3.6vmin; text-align: center; max-height: 92vh; }
+      #lobby { width: 92vmin; max-width: 96vw; }
+      #lobby .logo { font-size: 5.6vmin; }
+      #lobby .tagline { margin: 1.4vmin 0 2vmin; font-size: 1.6vmin; color: var(--grey); }
+      #lobbyGrid { display: grid; grid-template-columns: auto 1fr; gap: 3.5vmin; align-items: start; text-align: left; }
+      #joinCol { text-align: center; }
+      #joinCol h2 { margin: 0 0 1.2vmin; font-size: 1.8vmin; color: var(--coin); font-weight: normal; }
+      #qr { width: 24vmin !important; height: 24vmin !important; image-rendering: pixelated; border: 0.8vmin solid var(--white); display: block; }
+      #code { margin-top: 1.4vmin; font-size: 4.6vmin; letter-spacing: 0.4vmin; color: var(--white); text-shadow: 0.6vmin 0.6vmin 0 var(--brick); }
+      #url { margin-top: 1vmin; color: var(--grey); font-size: 1vmin; word-break: break-all; max-width: 24vmin; }
+      #players, #standings { list-style: none; padding: 0; margin: 0 0 1.6vmin; font-size: 2vmin; min-height: 3vmin; }
+      #standings { font-size: 2.6vmin; margin: 1.6vmin 0; text-align: left; }
+      #players li, #standings li { margin: 1vmin 0; }
       #players li.gone { opacity: 0.4; }
-      .dot { display: inline-block; width: 2.2vmin; height: 2.2vmin; border-radius: 50%; margin-right: 1vmin; }
-      button { font-size: 3vmin; padding: 1.2vmin 3vmin; margin: 0.5vmin; border: none; border-radius: 1vmin; background: #3a3; color: #fff; cursor: pointer; }
-      button:disabled { background: #555; cursor: default; }
-      button.secondary { background: #555; }
-      .row { font-size: 2.6vmin; margin: 0.6vmin 0; }
-      .row b { display: inline-block; min-width: 18vmin; }
-      button.small { font-size: 2.4vmin; padding: 0.4vmin 1.6vmin; background: #555; }
-      .cell .item { position: absolute; bottom: 1vmin; left: 50%; transform: translateX(-50%); font-size: 2.6vmin; white-space: nowrap; color: #ffe27a; }
-      .hint { color: #aaa; font-size: 2vmin; margin: 1vmin 0 0; }
-      .minimap { position: absolute; width: 12vmin; height: 12vmin; }
+      #players:empty::before { content: "Waiting for players..."; color: var(--grey); }
+      .dot { display: inline-block; width: 2vmin; height: 2vmin; margin-right: 1.2vmin; border: 0.3vmin solid #000; outline: 0.3vmin solid var(--white); }
+      .row { display: flex; align-items: center; justify-content: space-between; gap: 1vmin; font-size: 1.6vmin; margin: 1.2vmin 0; }
+      .row b { flex: 1; text-align: center; font-weight: normal; color: var(--coin); }
+      .btn.small { padding: 0.9vmin 1.4vmin; font-size: 1.6vmin; }
+      #startBtn, #rematchBtn { font-size: 2.4vmin; width: 100%; margin-top: 1vmin; }
+      #lobbyBtn { font-size: 1.6vmin; width: 100%; margin-top: 2vmin; }
+      #fight { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; background: #000; }
+      .hint { color: var(--grey); font-size: 1vmin; line-height: 1.6; margin: 1.6vmin 0 0; }
+      #results { min-width: 56vmin; }
+      #results h1 { margin: 0; font-size: 4vmin; }
+      #sound { position: fixed; right: 1vmin; bottom: 13.5vmin; font-size: 1vmin; color: var(--white); opacity: 0.6; pointer-events: none; }
+      #ground { position: fixed; left: 0; right: 0; bottom: 0; height: 12vmin; border-top: 0.8vmin solid #000; }
+      .minimap { position: absolute; width: 12vmin; height: 12vmin; image-rendering: pixelated; }
       .j-speed .speed { right: 8vmin; }
       .j-pos .pos { left: 8vmin; }
       .j-lap .lap { right: 8vmin; }
       .j-name .name { left: 8vmin; }
-      .minimap.center { left: 50%; top: 50%; transform: translate(-50%, -50%); opacity: 0.9; }
+      .minimap.center { left: 50%; top: 50%; transform: translate(-50%, -50%); opacity: 0.95; }
       .minimap.bottom { left: 50%; bottom: 1vmin; transform: translateX(-50%); }
-      #sound { position: fixed; left: 50%; top: 0.3vmin; transform: translateX(-50%); font-size: 1.6vmin; color: #fff9; pointer-events: none; }
-      .hidden { display: none; }
+      .hidden { display: none !important; }
     </style>
   </head>
   <body>
     <canvas id="game"></canvas>
+    <canvas id="fight" class="hidden"></canvas>
     <div id="hud"></div>
     <div id="banner"></div>
-    <div id="sound">Sound on (M)</div>
+    <div id="sound">SOUND ON (M)</div>
+    <div id="ground" class="bricks"></div>
 
-    <div id="lobby" class="panel">
-      <h1>Scan to join</h1>
-      <canvas id="qr"></canvas>
-      <div id="code">----</div>
-      <div id="url"></div>
-      <ul id="players"></ul>
-      <div class="row">Track <button id="trackPrev" class="small">◀</button><b id="trackName"></b><button id="trackNext" class="small">▶</button></div>
-      <div class="row">AI karts <button id="aiLess" class="small">−</button><b id="aiCount"></b><button id="aiMore" class="small">+</button></div>
-      <button id="startBtn" disabled>Start race</button>
-      <p class="hint">Keys: Enter = start, ◀ ▶ = track, ▲ ▼ = AI karts. AI karts only fill free places (max 4 karts).</p>
+    <div id="lobby" class="panel box">
+      <h1 class="logo" id="logo">Peaky Console</h1>
+      <p class="tagline" id="tagline">KART RACE</p>
+      <div id="lobbyGrid">
+        <div id="joinCol">
+          <h2>SCAN TO JOIN</h2>
+          <canvas id="qr"></canvas>
+          <div id="code">----</div>
+          <div id="url"></div>
+        </div>
+        <div>
+          <ul id="players"></ul>
+          <div class="row">GAME <button id="gamePrev" class="btn small">&lt;</button><b id="gameName"></b><button id="gameNext" class="btn small">&gt;</button></div>
+          <div class="row" id="rowTrack">TRACK <button id="trackPrev" class="btn small">&lt;</button><b id="trackName"></b><button id="trackNext" class="btn small">&gt;</button></div>
+          <div class="row"><span id="aiLabel">AI KARTS</span> <button id="aiLess" class="btn small">-</button><b id="aiCount"></b><button id="aiMore" class="btn small">+</button></div>
+          <button id="startBtn" class="btn green" disabled>Start race</button>
+        </div>
+      </div>
+      <p class="hint">ENTER = START / G = GAME / LEFT RIGHT = TRACK / UP DOWN = AI<br />AI players only fill free places (max 4)</p>
     </div>
 
-    <div id="results" class="panel hidden">
-      <h1>Results</h1>
+    <div id="results" class="panel box hidden">
+      <h1 class="logo">Results</h1>
       <ol id="standings"></ol>
-      <button id="rematchBtn">Rematch</button>
-      <button id="lobbyBtn" class="secondary">Back to lobby</button>
-      <p class="hint">Enter / Space = rematch, L = lobby</p>
+      <button id="rematchBtn" class="btn green">Rematch</button>
+      <button id="lobbyBtn" class="btn grey">Back to lobby</button>
+      <p class="hint">ENTER / SPACE = REMATCH / L = LOBBY</p>
     </div>
 
     <script type="module" src="/host/main.js"></script>

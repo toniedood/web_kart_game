@@ -1,7 +1,7 @@
 import { layoutFor } from "./scene.js";
 
 const ORDINALS = ["1st", "2nd", "3rd", "4th"];
-export const ITEM_LABELS = { boost: "🍄 BOOST", banana: "🍌 BANANA", rocket: "🚀 ROCKET" };
+export const ITEM_LABELS = { boost: "BOOST", banana: "BANANA", rocket: "ROCKET" };
 
 // One overlay cell per split-screen view: name, lap, position, speed.
 export function createHud(container, karts, track) {
@@ -30,7 +30,7 @@ export function createHud(container, karts, track) {
   });
 
   // minimap: the track is drawn once, the karts are dots on top
-  const SIZE = 220;
+  const SIZE = 110; // small canvas, scaled up with hard pixels
   const map = document.createElement("canvas");
   map.width = SIZE;
   map.height = SIZE;
@@ -41,43 +41,43 @@ export function createHud(container, karts, track) {
   const zs = track.points.map((p) => p.z);
   const minX = Math.min(...xs);
   const minZ = Math.min(...zs);
-  const scale = (SIZE - 36) / Math.max(Math.max(...xs) - minX, Math.max(...zs) - minZ);
-  const mx = (x) => 18 + (x - minX) * scale;
-  const my = (z) => SIZE - (18 + (z - minZ) * scale); // z up = screen up
+  const scale = (SIZE - 18) / Math.max(Math.max(...xs) - minX, Math.max(...zs) - minZ);
+  const mx = (x) => 9 + (x - minX) * scale;
+  const my = (z) => SIZE - (9 + (z - minZ) * scale); // z up = screen up
   const base = document.createElement("canvas");
   base.width = SIZE;
   base.height = SIZE;
   {
     const c = base.getContext("2d");
-    c.fillStyle = "rgba(0,0,0,0.45)";
-    c.beginPath();
-    c.roundRect(0, 0, SIZE, SIZE, 18);
-    c.fill();
-    c.lineJoin = "round";
+    c.fillStyle = "rgba(0,0,0,0.6)";
+    c.fillRect(0, 0, SIZE, SIZE);
+    c.strokeStyle = "#fff";
+    c.lineWidth = 2;
+    c.strokeRect(1, 1, SIZE - 2, SIZE - 2);
+    c.lineJoin = "miter";
     c.beginPath();
     track.points.forEach((p, i) => (i ? c.lineTo(mx(p.x), my(p.z)) : c.moveTo(mx(p.x), my(p.z))));
     c.closePath();
     c.strokeStyle = "#fff";
-    c.lineWidth = 8;
-    c.stroke();
-    c.strokeStyle = "#555";
     c.lineWidth = 5;
     c.stroke();
+    c.strokeStyle = "#7c7c7c";
+    c.lineWidth = 3;
+    c.stroke();
     c.fillStyle = "#fff"; // start line
-    c.fillRect(mx(track.points[0].x) - 5, my(track.points[0].z) - 2, 10, 4);
+    c.fillRect(mx(track.points[0].x) - 3, my(track.points[0].z) - 1, 6, 2);
   }
 
   function drawMap() {
     mctx.clearRect(0, 0, SIZE, SIZE);
     mctx.drawImage(base, 0, 0);
     for (const k of karts) {
-      mctx.beginPath();
-      mctx.arc(mx(k.x), my(k.z), 6, 0, Math.PI * 2);
+      const x = Math.round(mx(k.x));
+      const y = Math.round(my(k.z));
+      mctx.fillStyle = "#000";
+      mctx.fillRect(x - 4, y - 4, 8, 8);
       mctx.fillStyle = k.color;
-      mctx.fill();
-      mctx.strokeStyle = "#fff";
-      mctx.lineWidth = 2;
-      mctx.stroke();
+      mctx.fillRect(x - 3, y - 3, 6, 6);
     }
   }
 
@@ -94,7 +94,7 @@ export function createHud(container, karts, track) {
       const k = cell.kart;
       set(cell, "lap", `LAP ${k.lap}/${race.laps}`);
       set(cell, "pos", `${ORDINALS[k.position - 1]} / ${cells.length}`);
-      set(cell, "speed", `${Math.round(Math.abs(k.speed) * 3.6)} km/h`);
+      set(cell, "speed", `${Math.round(Math.abs(k.speed) * 3.6)} KM/H`);
       set(cell, "item", k.item ? ITEM_LABELS[k.item] : "");
       set(cell, "done", k.finished ? "FINISHED" : k.connected ? "" : "DISCONNECTED");
     }

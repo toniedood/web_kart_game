@@ -106,6 +106,31 @@ export function createAudio() {
         noise(0.4, 0.25 + event.level * 0.1, 3000);
         tone(300, 0.4, { type: "square", volume: 0.1, slideTo: 600 * event.level });
         break;
+      case "swing":
+        noise(0.12, 0.12, 4000);
+        tone(event.kind === "kick" ? 260 : 340, 0.1, { type: "triangle", volume: 0.08, slideTo: 140 });
+        break;
+      case "hurt":
+        noise(0.18, 0.5, 1800);
+        tone(180, 0.2, { type: "square", volume: 0.25, slideTo: 60 });
+        break;
+      case "block":
+        tone(900, 0.06, { type: "square", volume: 0.15, slideTo: 600 });
+        break;
+      case "jump":
+        tone(300, 0.15, { type: "square", volume: 0.1, slideTo: 600 });
+        break;
+      case "ko":
+        noise(0.7, 0.5, 900);
+        tone(260, 0.8, { type: "sawtooth", volume: 0.25, slideTo: 40 });
+        break;
+      case "round":
+        tone(330, 0.12, { type: "triangle", volume: 0.2 });
+        tone(440, 0.12, { type: "triangle", volume: 0.2, delay: 0.14 });
+        break;
+      case "roundend":
+        [523, 659, 784].forEach((f, i) => tone(f, 0.22, { type: "triangle", volume: 0.22, delay: i * 0.1 }));
+        break;
       case "bump": {
         const strength = Math.min(event.strength / 15, 1);
         noise(0.15 + strength * 0.15, 0.15 + strength * 0.45, 500 + strength * 1500);

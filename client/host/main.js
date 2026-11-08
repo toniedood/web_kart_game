@@ -9,6 +9,9 @@ import { createGfx } from "./scene.js";
 import { createHud } from "./hud.js";
 import { botInput } from "./bots.js";
 import { createAudio } from "./audio.js";
+import { colourLogos } from "../shared/logo.js";
+import { FightGame } from "./fight/game.js";
+import { createFightView } from "./fight/view.js";
 
 const $ = (id) => document.getElementById(id);
 const NO_INPUT = {};
@@ -17,9 +20,19 @@ const KART_COLORS = ["#e53935", "#1e88e5", "#43a047", "#fdd835"];
 const params = new URLSearchParams(location.search);
 const laps = Number(params.get("laps")) || LAPS; // dev: /?laps=1 for a short race
 
+colourLogos();
 const socket = io();
 const gfx = createGfx($("game"));
 const audio = createAudio();
+const fightView = createFightView($("fight"));
+
+// the games in the console menu
+const GAMES = {
+  kart: { name: "KART RACE", ai: "AI KARTS", min: 1 },
+  fight: { name: "NEON BRAWL", ai: "AI FIGHTERS", min: 2 },
+};
+let selectedGame = params.get("game") === "fight" ? "fight" : "kart"; // dev: /?game=fight
+let fight = null;
 
 // players: id -> { id, name, color, connected, input: { left, right, gas, brake, item } }
 // (phones only; AI karts are added when a race starts)
@@ -46,9 +59,14 @@ function renderLobby() {
   }
   const humans = [...players.values()].filter((p) => p.connected).length;
   const ai = Math.max(0, Math.min(aiCount, MAX_PLAYERS - humans));
-  $("aiCount").textContent = `${ai} AI`;
+  $("aiCount").textContent = `${ai}`;
   $("trackName").textContent = TRACKS[trackIndex].name;
-  $("startBtn").disabled = humans + ai === 0;
+  $("gameName").textContent = GAMES[selectedGame].name;
+  $("aiLabel").textContent = GAMES[selectedGame].ai;
+  $("tagline").textContent = GAMES[selectedGame].name;
+  $("rowTrack").classList.toggle("hidden", selectedGame !== "kart");
+  $("startBtn").textContent = selectedGame === "kart" ? "Start race" : "Start fight";
+  $("startBtn").disabled = humans + ai < GAMES[selectedGame].min;
 }
 
 function selectTrack(delta) {
@@ -63,9 +81,25 @@ function selectAi(delta) {
   renderLobby();
 }
 
+function selectGame(delta) {
+  const keys = Object.keys(GAMES);
+  selectedGame = keys[(keys.indexOf(selectedGame) + delta + keys.length) % keys.length];
+  showGameView();
+  renderLobby();
+  socket.emit(EVENTS.GAME_PHASE, { phase, game: selectedGame });
+}
+
+// which big canvas is visible behind the lobby
+function showGameView() {
+  const fightOn = selectedGame === "fight";
+  $("fight").classList.toggle("hidden", !fightOn);
+  $("game").classList.toggle("hidden", fightOn);
+  $("ground").classList.toggle("hidden", fightOn || phase !== "lobby");
+}
+
 function setPhase(next) {
   phase = next;
-  socket.emit(EVENTS.GAME_PHASE, { phase });
+  socket.emit(EVENTS.GAME_PHASE, { phase, game: selectedGame });
 }
 
 socket.on("connect", () => {
@@ -84,7 +118,7 @@ socket.on(EVENTS.PLAYER_JOINED, ({ playerId, name, color }) => {
   if (known) Object.assign(known, { name, connected: true });
   else players.set(playerId, { id: playerId, name, color, connected: true, input: {} });
   renderLobby();
-  socket.emit(EVENTS.GAME_PHASE, { phase }); // tell the (re)joined phone where we are
+  socket.emit(EVENTS.GAME_PHASE, { phase, game: selectedGame }); // tell the (re)joined phone where we are
 });
 
 socket.on(EVENTS.PLAYER_LEFT, ({ playerId }) => {
@@ -104,6 +138,34 @@ socket.on(EVENTS.INPUT, ({ playerId, btn, down }) => {
 
 // --- race flow ---
 function startRace() {
+  if (selectedGame === "fight") startFight();
+  else startKart();
+}
+
+function startFight() {
+  if (phase !== "lobby" && phase !== "results") return;
+  const humans = [...players.values()].filter((p) => p.connected).slice(0, MAX_PLAYERS);
+  const ai = Math.max(0, Math.min(aiCount, MAX_PLAYERS - humans.length));
+  if (humans.length + ai < GAMES.fight.min) return;
+  const free = KART_COLORS.filter((c) => !humans.some((p) => p.color === c));
+  const bots = Array.from({ length: ai }, (_, i) => ({
+    id: `ai${i + 1}`,
+    name: `AI ${i + 1}`,
+    color: free[i] ?? KART_COLORS[i],
+    bot: true,
+    skill: 0.7 + 0.1 * i,
+  }));
+  fight = new FightGame([...humans, ...bots]);
+  fightView.prepare(fight);
+  audio.unlock();
+  lastSent.clear();
+  $("lobby").classList.add("hidden");
+  $("ground").classList.add("hidden");
+  $("results").classList.add("hidden");
+  setPhase("countdown");
+}
+
+function startKart() {
   if (phase !== "lobby" && phase !== "results") return;
   const humans = [...players.values()].filter((p) => p.connected).slice(0, MAX_PLAYERS);
   const ai = Math.max(0, Math.min(aiCount, MAX_PLAYERS - humans.length));
@@ -126,6 +188,8 @@ function startRace() {
   audio.startEngines(race.karts);
   lastSent.clear();
   $("lobby").classList.add("hidden");
+  $("ground").classList.add("hidden");
+  $("sound").classList.add("hidden");
   $("results").classList.add("hidden");
   setPhase("countdown");
 }
@@ -133,6 +197,7 @@ function startRace() {
 function backToLobby() {
   audio.stopEngines();
   race = null;
+  fight = null;
   hud = null;
   $("hud").innerHTML = "";
   $("banner").textContent = "";
@@ -141,7 +206,9 @@ function backToLobby() {
   renderLobby();
   $("results").classList.add("hidden");
   $("lobby").classList.remove("hidden");
+  $("sound").classList.remove("hidden");
   setPhase("lobby");
+  showGameView();
 }
 
 function formatTime(seconds) {
@@ -153,10 +220,20 @@ function formatTime(seconds) {
 function showResults() {
   const list = $("standings");
   list.innerHTML = "";
+  if (fight) {
+    for (const f of fight.ranked) {
+      const li = document.createElement("li");
+      li.innerHTML = `<span class="dot" style="background:${f.color}"></span>`;
+      li.append(`${f.name} ${f.wins} WIN${f.wins === 1 ? "" : "S"}`);
+      list.append(li);
+    }
+    $("results").classList.remove("hidden");
+    return;
+  }
   for (const k of race.ranked) {
     const li = document.createElement("li");
     li.innerHTML = `<span class="dot" style="background:${k.color}"></span>`;
-    li.append(`${k.name}  ${k.finished ? formatTime(k.finishTime) : "DNF"}`);
+    li.append(`${k.name} ${k.finished ? formatTime(k.finishTime) : "DNF"}`);
     list.append(li);
   }
   $("results").classList.remove("hidden");
@@ -197,7 +274,42 @@ function buzzHits(events) {
   }
 }
 
+// phone buttons -> fighter inputs
+function getFightInput(f) {
+  const p = players.get(f.id);
+  return p?.connected ? p.input : NO_INPUT;
+}
+
+function tickFight() {
+  for (const f of fight.fighters) f.connected = f.bot || (players.get(f.id)?.connected ?? false);
+  fight.update(STEP, getFightInput);
+  for (const f of fight.fighters) {
+    if (f.bot) continue;
+    const key = `${f.hp}/${f.wins}`;
+    if (lastSent.get(f.id) === key) continue;
+    lastSent.set(f.id, key);
+    socket.emit(EVENTS.PLAYER_FEEDBACK, { playerId: f.id, hp: f.hp, wins: f.wins });
+  }
+  for (const e of fight.events) {
+    fightView.onEvent(e);
+    audio.handle(e);
+    const human = (id) => players.has(id);
+    if (e.type === "hurt" && human(e.id)) socket.emit(EVENTS.PLAYER_FEEDBACK, { playerId: e.id, vibrate: 120 });
+    if (e.type === "ko" && human(e.id)) socket.emit(EVENTS.PLAYER_FEEDBACK, { playerId: e.id, vibrate: [200, 100, 200] });
+  }
+  fight.events.length = 0;
+  const next = { intro: "countdown", fight: "race", roundend: "race", results: "results" }[fight.phase];
+  if (next !== phase) {
+    if (next === "results") showResults();
+    setPhase(next);
+  }
+}
+
 function tick() {
+  if (fight) {
+    tickFight();
+    return;
+  }
   if (!race) return;
   for (const k of race.karts) k.connected = k.bot || (players.get(k.id)?.connected ?? false);
   race.update(STEP, getInput);
@@ -230,10 +342,14 @@ function frame(now) {
     tick();
     acc -= STEP;
   }
-  if (race) {
+  if (fight) {
+    fightView.draw(fight, dt, now / 1000);
+  } else if (race) {
     gfx.renderRace(race, dt);
     hud.update(race);
     audio.updateEngines(race.karts, race.phase);
+  } else if (selectedGame === "fight") {
+    fightView.draw(null, dt, now / 1000);
   } else {
     gfx.renderOverview(dt);
   }
@@ -250,23 +366,27 @@ $("trackPrev").addEventListener("click", () => selectTrack(-1));
 $("trackNext").addEventListener("click", () => selectTrack(1));
 $("aiLess").addEventListener("click", () => selectAi(-1));
 $("aiMore").addEventListener("click", () => selectAi(1));
+$("gamePrev").addEventListener("click", () => selectGame(-1));
+$("gameNext").addEventListener("click", () => selectGame(1));
 window.addEventListener("keydown", (e) => {
   audio.unlock();
   if (e.code === "KeyM") {
-    $("sound").textContent = audio.toggleMute() ? "Sound off (M)" : "Sound on (M)";
+    $("sound").textContent = audio.toggleMute() ? "SOUND OFF (M)" : "SOUND ON (M)";
   } else if (e.code === "Enter" || e.code === "Space") {
     e.preventDefault();
     if (phase === "lobby" || phase === "results") startRace();
-  } else if (phase === "lobby" && e.code === "ArrowLeft") selectTrack(-1);
+  } else if (phase === "lobby" && e.code === "KeyG") selectGame(1);
+  else if (phase === "lobby" && e.code === "ArrowLeft") selectTrack(-1);
   else if (phase === "lobby" && e.code === "ArrowRight") selectTrack(1);
   else if (phase === "lobby" && e.code === "ArrowUp") selectAi(1);
   else if (phase === "lobby" && e.code === "ArrowDown") selectAi(-1);
   else if (e.code === "KeyL" && phase === "results") backToLobby();
 });
 
-window.kartDebug = { audio, getRace: () => race }; // dev: poke at things from the console
+window.kartDebug = { audio, getRace: () => race, getFight: () => fight }; // dev: poke at things from the console
 
 selectTrack(0); // builds the first track (or the one in ?track=) and draws the lobby
+showGameView();
 requestAnimationFrame(frame);
 
 // dev: /?bots=2&autostart starts a race straight away
