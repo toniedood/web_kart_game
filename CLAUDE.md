@@ -25,7 +25,11 @@ A 3D kart racing game (Mario Kart-like, camera behind the kart). It is played on
    - 8a. Peaky Console pixel look ✅ (tested on phone)
    - 8b. Two more 2-4 player games ✅ Neon Brawl (2D fighter) + Hell Keep (Doom-style shooter); Hell Keep not yet tested on real phones
    - 8c. Phone character customisation ✅
-   - 8d. Final testing and polish (see status log) ← WE ARE HERE
+   - 8d. Final testing and polish (see status log)
+9. Android TV app + lowest ping ← NEXT (plan below, Toni executes)
+   - 9.1 Quick wins: Frankfurt region, measure DIRECT/SERVER ping, TV Game Mode
+   - 9.2 Android TV wrapper (Capacitor + WebView, remote-control lobby)
+   - 9.3 Optional: Home mode (local server inside the TV app, works offline)
 
 ## Step 0 – Concept decisions
 - 3D with the camera behind the kart (Three.js)
@@ -120,6 +124,66 @@ Web game app/
 
 **Step 1 is done when** my phone shows "Hello kart" served from my Mac.
 
+## Step 9 – Android TV app + lowest ping (plan, Toni executes)
+Goal: Peaky Console installs on an Android TV, is driven by the TV remote in the lobby, and a phone button reaches the game in < 15 ms at home.
+
+### Where the delay comes from (approx., one button press)
+| Part | Now | Target |
+|---|---|---|
+| Phone → TV path | Socket.IO via Oregon ≈ 150–200 ms; WebRTC direct (done, 72e991c) ≈ 3–10 ms on the same Wi-Fi | WebRTC direct on LAN |
+| Set-up / fallback path | Oregon ≈ 150–200 ms | Frankfurt ≈ 30–40 ms |
+| Waiting for the next 60 Hz tick | 0–17 ms | keep (fine) |
+| TV picture processing | 50–100 ms without Game Mode | Game Mode on ≈ 10–20 ms |
+
+Key idea: since the WebRTC channel exists, the cloud server is only needed to **introduce** phone and TV. After that, inputs never leave the home Wi-Fi. So step 9.3 (a local server inside the app) is only needed for offline / no-internet play.
+
+### 9.1 Quick wins (do first, ~30 min)
+1. [ ] In `render.yaml` add `region: frankfurt` under the service. Change `name:` to e.g. `peaky-console` (a region can't be changed on an existing service, so this creates a new one).
+2. [ ] Push, then in Render: New → Blueprint → pick the repo. Wait for the deploy, open `/healthz`.
+3. [ ] Test with 2 phones: press `P` on the host. Check `SERVER x MS` (expect ~30–40) and `DIRECT open/players rtt MS` (expect < 15 on the same Wi-Fi). Write both numbers in the status log.
+4. [ ] Test one phone on **mobile data**: does DIRECT open, or does it fall back? (STUN only, no TURN — fallback is expected on some networks.)
+5. [ ] When everything works on the new service, delete the old Oregon service.
+6. [ ] Home setup: TV **Game Mode** on, TV/laptop on Ethernet if possible, phones on 5 GHz Wi-Fi.
+- Learn: what STUN vs TURN do (STUN = "what is my public address?", TURN = a relay when no direct route exists). Optional later: free TURN (e.g. Metered/Cloudflare) added to `RTC_CONFIG` in `client/shared/events.js`.
+
+**9.1 is done when** the overlay shows DIRECT open with < 15 ms on home Wi-Fi and SERVER < 50 ms.
+
+### 9.2 Android TV wrapper with Capacitor (the real app)
+Why Capacitor: it puts our existing `dist/` into an Android `WebView`, no rewrite. (Not a TWA: that needs Chrome, which most Android TVs don't have.)
+1. [ ] Install **Android Studio** (includes the SDK + an Android TV emulator: Device Manager → TV → 1080p).
+2. [ ] `npm i @capacitor/core` and `npm i -D @capacitor/cli @capacitor/android`
+3. [ ] `npx cap init "Peaky Console" com.toni.peakyconsole --web-dir dist`
+4. [ ] Decide where the page comes from (pick **A** first):
+   - **A. Load from Render**: in `capacitor.config.json` set `"server": { "url": "https://<frankfurt-service>.onrender.com" }`. App = a TV shortcut to the website; updates go live with every push. Needs internet.
+   - **B. Bundle `dist/` inside the app**: `npm run build && npx cap sync`. Then Socket.IO must point to the Render URL instead of "same origin" (`io("https://...")` in `host/main.js`), and the QR code must contain the full Render URL. Works faster at start-up, but every change needs a new APK.
+5. [ ] `npx cap add android`, then `npx cap open android` (opens Android Studio).
+6. [ ] Make it a TV app, in `android/app/src/main/AndroidManifest.xml`:
+   - inside `<manifest>`: `<uses-feature android:name="android.software.leanback" android:required="false"/>` and `<uses-feature android:name="android.hardware.touchscreen" android:required="false"/>`
+   - in the main `<activity>`'s `<intent-filter>`: add `<category android:name="android.intent.category.LEANBACK_LAUNCHER"/>`
+   - on `<application>`: `android:banner="@drawable/banner"`; make a **320×180 px** PNG banner (Peaky Console logo) in `res/drawable/`
+   - set the activity to landscape: `android:screenOrientation="landscape"`
+7. [ ] Run it in the TV emulator (▶ in Android Studio). Check: the lobby shows, QR code is readable, a phone can join.
+8. [ ] **Remote control in the lobby.** The remote sends normal key events to the page: `ArrowUp/Down/Left/Right`, `Enter` (OK), and Back = `Escape`/`GoBack` (check what arrives with a `console.log(e.key, e.keyCode)` in the `keydown` listener in `host/main.js`, ~line 584). Map them:
+   - Up/Down = move between menu rows (GAME, TRACK, BOTS, START), Left/Right = change value, OK = start/rematch, Back = back to lobby (reuse `leaveGame()` with its confirm).
+   - Show which row is selected (a highlight/blinking arrow), because there is no mouse.
+   - Back on the lobby itself should **not** close the app by accident (Android: handle the back button; Capacitor `@capacitor/app` → `App.addListener('backButton', ...)`).
+9. [ ] Keep the screen awake during play: `@capacitor-community/keep-awake` (or the Screen Wake Lock API: `navigator.wakeLock.request("screen")`).
+10. [ ] **Performance test on real TV hardware** (e.g. Chromecast with Google TV / any Android TV box): kart race with 4 views, fight, shooter. Press `P` and write the FPS in the status log. If < 50 FPS: lower `PIXEL_ROWS` in `scene.js` (e.g. 270 → 200), fewer clouds/rocks, shadows off.
+11. [ ] Install on the real TV: Android Studio → Build → Build APK, then either `adb connect <TV IP>` + `adb install app-debug.apk` (turn on Developer options + USB/network debugging on the TV), or a USB stick + a file manager app.
+- Learn: what a WebView is (a browser without the address bar inside an app); the Android manifest (like a config file the system reads before starting the app); `adb` basics.
+
+**9.2 is done when** the app shows on the TV home screen with the banner, the lobby is fully usable with the remote, and a 4-player race runs ≥ 50 FPS.
+
+### 9.3 Optional: Home mode (offline, no cloud at all)
+Only if we want it to work without internet (school Wi-Fi, café, travel). The TV app itself becomes the server:
+1. [ ] Inside the Android app, start a small **HTTP + WebSocket server** in Kotlin (e.g. Ktor or NanoHTTPD) on port 8080. It serves `play.html` + `assets/` from the app and relays messages — the same rules as `server/main.py` (rooms, 4 players, relay, `rtc:signal`), ~180 lines of Python → Kotlin. Compare them side by side while writing.
+2. [ ] Simplest protocol: plain WebSockets with JSON `{ "event": "...", "data": {...} }` instead of Socket.IO (no good Socket.IO server for Kotlin). That means a small adapter in the JS (`socket.emit/on` → our own tiny wrapper) so the same game code works with both servers.
+3. [ ] The app finds the TV's Wi-Fi IP and the QR code encodes `http://<TV IP>:8080/play?room=ABCD`.
+4. [ ] Lobby toggle: ONLINE (Render) / HOME (local server).
+- Watch out: guest and school networks often block devices from seeing each other ("client isolation") → use a phone hotspot or a home router. HTTP (not HTTPS) is fine because we don't use tilt sensors.
+
+**9.3 is done when** the TV and phones play with the internet unplugged from the router.
+
 ## Status log
 - 2026-11-07: Steps 0 and 1 planned. Switched the server from Node to Python. Next: finish the setup tasks, then plan Step 2 in detail.
 - 2026-11-07: Setup tasks 1–7 done (Node installed via brew, packages installed, `server/main.py` "Hello kart" works on localhost and the LAN IP). Toni asked the AI to write `server/main.py`, as this setup is not the coding exercise. Next: open the LAN URL on the phone (task 8).
@@ -143,3 +207,5 @@ Web game app/
 - 2026-11-08: Added **back to lobby during any game** (host page): a BACK TO LOBBY button shows when the mouse moves (hides after 3 s) and `Esc` does the same; it needs a second press to confirm, then returns everyone to the lobby (`leaveGame()` in `host/main.js`). Tested headless in kart, fight and shooter. Phones have no such button (only the host can end a game). Committed locally.
 - 2026-11-08: Controller steering is now a **floating joystick** (Brawl Stars style): touch anywhere in the left area, the D-pad picture appears under the thumb and the hub becomes a yellow stick that follows it (dead zone + 8 directions, same `left/right/up/down` buttons, nothing changes on the host). **Feedback on the phone:** `haptic()` helper (vibrate on Android; hidden `<input switch>` tap trick for iPhone iOS 18+, not verifiable headless), lighter tick for the stick, stronger for A/B/ITEM, LCD flashes + shakes when the host sends `vibrate` or HP drops. Verified headless with emulated touch; not yet on a real phone. Committed locally.
 - 2026-11-08: **Ping work.** (1) WebRTC data channel per phone: the phone sends an offer through the server (`rtc:signal`, relayed by `server/main.py`), the host answers; after that buttons (phone -> host) and feedback (host -> phone) go directly over the channel, with the Socket.IO path as automatic fallback when the channel is not open (STUN only, no TURN, so some mobile networks will fall back). Reliable + ordered channel, so a lost "button up" can't stick a button. Host `toPhone()`, phone `openLink()` / `onFeedback()`. P overlay now shows `SERVER x MS` and `DIRECT open/players rtt MS`. (2) Compression off: `http_compression=False` in the Socket.IO server and `--ws-per-message-deflate false` in the Dockerfile CMD (Docker image still never built locally). Verified headless (host + phone tabs: channel opens, button down/up reach the host); not yet tested over a real network. Committed locally. Region is still Oregon.
+- 2026-11-08: Step 9 planned (Android TV app + lowest ping): 9.1 Frankfurt region + measurements, 9.2 Capacitor TV wrapper with remote-control lobby, 9.3 optional offline Home mode. Since the WebRTC direct channel already exists, the cloud is only needed for set-up; inputs stay on the home Wi-Fi. Mode: Toni executes, AI reviews.
+- 2026-11-08: **Kart graphics upgrade** (`client/host/scene.js`): 360 pixel rows instead of 270 (`?rows=270` goes back to chunkier/faster), real shadows (the sun's shadow map follows each kart's view; blob shadows kept as a faint contact shadow), kerbs + dashed centre line on the road, speckled ground texture, bigger trees (2 cones), bushes, distant snow-capped mountains that ignore fog, glossy karts with driver, arms, steering wheel, side pods, fenders, head/brake lights, rounder wheels, "?" item boxes, particles (dust, drift smoke, boost glow; pooled sprites in `createParticles`). Verified in headless screenshots (1-4 players; software GL so FPS numbers mean nothing); real-GPU speed with 4 views not yet measured. Frankfurt: not changed (see Step 8 notes: needs a new Render service).
