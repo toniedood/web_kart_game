@@ -21,7 +21,7 @@ const params = new URLSearchParams(location.search);
 const laps = Number(params.get("laps")) || LAPS; // dev: /?laps=1 for a short race
 
 colourLogos();
-const socket = io();
+const socket = io({ transports: ["websocket"] }); // websocket only: skips the slower HTTP polling start
 const gfx = createGfx($("game"));
 const audio = createAudio();
 const fightView = createFightView($("fight"));
@@ -324,6 +324,25 @@ function tick() {
   }
 }
 
+// P shows frames per second and the round trip to the server
+let perfOn = params.has("perf");
+$("perf").classList.toggle("hidden", !perfOn);
+let frames = 0;
+let fpsSince = performance.now();
+let ping = null;
+setInterval(() => {
+  if (!perfOn) return;
+  const t = performance.now();
+  socket.emit("latency", () => (ping = Math.round(performance.now() - t)));
+}, 1000);
+function updatePerf(now) {
+  frames += 1;
+  if (now - fpsSince < 1000) return;
+  $("perf").textContent = `FPS ${frames}  PING ${ping ?? "-"} MS`;
+  frames = 0;
+  fpsSince = now;
+}
+
 function updateBanner() {
   let text = "";
   if (race?.phase === "countdown") text = String(Math.ceil(race.countdown));
@@ -354,6 +373,7 @@ function frame(now) {
     gfx.renderOverview(dt);
   }
   updateBanner();
+  updatePerf(now);
   requestAnimationFrame(frame);
 }
 
@@ -370,7 +390,10 @@ $("gamePrev").addEventListener("click", () => selectGame(-1));
 $("gameNext").addEventListener("click", () => selectGame(1));
 window.addEventListener("keydown", (e) => {
   audio.unlock();
-  if (e.code === "KeyM") {
+  if (e.code === "KeyP") {
+    perfOn = !perfOn;
+    $("perf").classList.toggle("hidden", !perfOn);
+  } else if (e.code === "KeyM") {
     $("sound").textContent = audio.toggleMute() ? "SOUND OFF (M)" : "SOUND ON (M)";
   } else if (e.code === "Enter" || e.code === "Space") {
     e.preventDefault();

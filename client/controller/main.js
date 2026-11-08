@@ -4,7 +4,24 @@ import { colourLogos } from "../shared/logo.js";
 
 colourLogos();
 
-const socket = io();
+// websocket only: skips the slower HTTP polling start
+const socket = io({ transports: ["websocket"] });
+
+// iPhones ignore user-scalable=no: block pinch zoom and double-tap zoom ourselves
+for (const type of ["gesturestart", "gesturechange", "gestureend"]) {
+  document.addEventListener(type, (e) => e.preventDefault());
+}
+document.addEventListener("touchmove", (e) => e.touches.length > 1 && e.preventDefault(), { passive: false });
+let lastTouchEnd = 0;
+document.addEventListener(
+  "touchend",
+  (e) => {
+    const now = Date.now();
+    if (now - lastTouchEnd < 350 && e.target.tagName !== "INPUT") e.preventDefault();
+    lastTouchEnd = now;
+  },
+  { passive: false },
+);
 const code = new URLSearchParams(location.search).get("room");
 const KEY = "kart-session";
 

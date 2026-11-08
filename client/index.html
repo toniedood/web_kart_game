@@ -43,6 +43,7 @@
       .hint { color: var(--grey); font-size: 1vmin; line-height: 1.6; margin: 1.6vmin 0 0; }
       #results { min-width: 56vmin; }
       #results h1 { margin: 0; font-size: 4vmin; }
+      #perf { position: fixed; left: 1vmin; bottom: 1vmin; font-size: 1.2vmin; color: #58d854; text-shadow: 0.2vmin 0.2vmin 0 #000; pointer-events: none; }
       #sound { position: fixed; right: 1vmin; bottom: 13.5vmin; font-size: 1vmin; color: var(--white); opacity: 0.6; pointer-events: none; }
       #ground { position: fixed; left: 0; right: 0; bottom: 0; height: 12vmin; border-top: 0.8vmin solid #000; }
       .minimap { position: absolute; width: 12vmin; height: 12vmin; image-rendering: pixelated; }
@@ -60,6 +61,7 @@
     <canvas id="fight" class="hidden"></canvas>
     <div id="hud"></div>
     <div id="banner"></div>
+    <div id="perf" class="hidden"></div>
     <div id="sound">SOUND ON (M)</div>
     <div id="ground" class="bricks"></div>
 

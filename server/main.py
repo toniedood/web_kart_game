@@ -92,6 +92,11 @@ async def player_join(sid, data):
     return {"ok": True, "playerId": player_id, "color": color}
 
 
+@sio.on("latency")
+async def latency(sid):
+    return True  # the host times how long this answer takes
+
+
 @sio.on(ev.INPUT)
 async def on_input(sid, data):
     session = sessions.get(sid)
