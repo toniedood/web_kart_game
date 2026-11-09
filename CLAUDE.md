@@ -222,6 +222,24 @@ Only if we want it to work without internet (school Wi-Fi, café, travel). The T
 
 **9.3 is done when** the TV and phones play with the internet unplugged from the router.
 
+## Toni's to-do (next session)
+Everything is pushed (last code commit `43eaa74`). Two things are waiting on Toni:
+
+**1. Create the Frankfurt service on Render** (`render.yaml` already says `peaky-console`, `region: frankfurt`)
+1. [ ] Render dashboard → New → Blueprint → pick the repo `toniedood/web_kart_game` → apply.
+2. [ ] Wait for the deploy (the first Docker build on Render is also the first real test of the Dockerfile with `--ws-per-message-deflate false`; if the build fails, paste the log). Open `<new URL>/healthz`.
+3. [ ] Open the new URL on the TV page, join with 2 phones, press **P**. `SERVER` should be about 30-40 ms.
+4. [ ] When it works, delete the old `kart-game` service in Oregon.
+5. [ ] Tell the AI the new URL (it goes into this file, and the old links/QR notes change).
+
+**2. Send the overlay readings** (2 phones joined, wait ~10 s, then copy the lines)
+- [ ] The first line: `FPS .. SLOWEST FRAME .. MS SERVER .. MS`
+- [ ] One line per phone: `NAME DIRECT js x / net y / peak z MS route`
+- [ ] Do it once in the lobby and once in a 4-player kart race (the FPS and slowest frame in the race show if the new graphics are too heavy).
+- How the AI reads them (Task D in 9.1b): net low + js high = the host page is busy -> lighter rendering; net high = Wi-Fi (try Ethernet / 5 GHz / `sudo ifconfig awdl0 down`); route not `host-host` = phone and TV are not talking directly.
+
+**Also still untested on real devices:** Hell Keep on phones, vibration patterns (Android only; iPhones get one tap at most), the floating joystick feel.
+
 ## Status log
 - 2026-11-07: Steps 0 and 1 planned. Switched the server from Node to Python. Next: finish the setup tasks, then plan Step 2 in detail.
 - 2026-11-07: Setup tasks 1–7 done (Node installed via brew, packages installed, `server/main.py` "Hello kart" works on localhost and the LAN IP). Toni asked the AI to write `server/main.py`, as this setup is not the coding exercise. Next: open the LAN URL on the phone (task 8).
@@ -254,3 +272,4 @@ Only if we want it to work without internet (school Wi-Fi, café, travel). The T
 - 2026-11-09: **9.1b Task A done.** `P` overlay now shows `FPS / SLOWEST FRAME ms / SERVER ms` and one line per phone: `NAME DIRECT js x / net y / peak z MS route` (js = our ping/pong, net = `getStats()` candidate-pair currentRoundTripTime, peak = worst js rtt in the last 5 s, route = e.g. host-host). Verified headless (host-host, ~0 ms on one machine). Needs a real-network reading to apply the "Reading the result" rules.
 - 2026-11-09: **9.1b Task B done.** Phone keeps all button states as a bit mask and sends it with a sequence number on an unreliable data channel `state` (on every change, every 50 ms while held, 100 ms after release); every change is also sent on the reliable channel with the same number as a safety net. Host `applyState()` drops copies older than the newest seen and applies only real changes; Socket.IO `{btn, down}` stays the last fallback. Verified headless with simulated packet loss (patched `send`): 0 / 60 / 95 % loss -> 0 stuck buttons and 0 missed presses in 40 quick press/release cycles. (A first version with only repeats left 6/40 stuck at 60 % loss; the reliable copy fixed it.) Protocol table updated.
 - 2026-11-09: **9.1b Task C (code part) done.** `render.yaml`: service renamed `peaky-console`, `region: frankfurt`. Nothing is live yet: Toni still has to do Render -> New -> Blueprint -> this repo, check `/healthz`, test (`P` overlay: SERVER should be ~30-40 ms), then delete the old `kart-game` Oregon service and put the new URL in this file. Task D not started on purpose: it only applies if the new overlay shows net low / js high on real devices.
+- 2026-11-09: Added a "Toni's to-do (next session)" section above the status log (Frankfurt service steps + overlay readings). Toni will do it on 2026-11-10.
