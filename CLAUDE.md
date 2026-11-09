@@ -28,6 +28,7 @@ A 3D kart racing game (Mario Kart-like, camera behind the kart). It is played on
    - 8d. Final testing and polish (see status log)
 9. Android TV app + lowest ping ← NEXT (plan below, Toni executes)
    - 9.1 Quick wins: Frankfurt region, measure DIRECT/SERVER ping, TV Game Mode
+   - 9.1b Ping fixes: task list A–D for the VS Code agent + Toni's network checks ← NEXT
    - 9.2 Android TV wrapper (Capacitor + WebView, remote-control lobby)
    - 9.3 Optional: Home mode (local server inside the TV app, works offline) — on hold (Toni's call)
 
@@ -148,6 +149,40 @@ Key idea: since the WebRTC channel exists, the cloud server is only needed to **
 
 **9.1 is done when** the overlay shows DIRECT open with < 15 ms on home Wi-Fi and SERVER < 50 ms.
 
+### 9.1b Ping fixes – task list for the VS Code agent
+Toni asked for these to be implemented by the AI (VS Code extension). Do them **in order**, one commit per task, and add a status-log line after each. Measured so far: SERVER 250–300 ms (Oregon), DIRECT 20–90 ms even with 20 pings/s (22702d0), so Wi-Fi power saving was not the main cause.
+
+**Task A – Diagnostics in the `P` overlay (do first, it decides what matters)**
+- [ ] In `client/host/main.js`, every 1 s call `link.pc.getStats()` for each open link. Find the `candidate-pair` with `state === "succeeded"` (or `nominated`); read `currentRoundTripTime` (seconds → ms) and look up its `localCandidateId` / `remoteCandidateId` reports to get `candidateType` (`host` / `srflx` / `prflx` / `relay`). Store as `link.netRtt` and `link.route` (e.g. `host-host`).
+- [ ] Also record the worst DIRECT rtt in the last 5 s per link (`link.peak`), not only the smoothed value.
+- [ ] Overlay: one line per phone, e.g. `P1 DIRECT js 24 / net 6 / peak 88 MS host-host`, plus FPS and the time of the slowest frame in the last second (ms).
+- [ ] Nothing changes in gameplay. Verify headless that the numbers show.
+- Reading the result: **net low but js high** → the host page is busy (rendering) → Task D. **net high** → Wi-Fi/network → Task B + Toni's checks below. **route not host-host** → the phones and the TV are not talking directly on the LAN (mDNS / router) → note it in the status log.
+
+**Task B – Unreliable channel with full button state (removes the lost-packet spikes)**
+- [ ] Phone (`client/controller/main.js`): keep the current button state in one object `{ left, right, up, down, gas, brake, item }`. Open a second data channel `"state"` with `{ ordered: false, maxRetransmits: 0 }`. On every change, and again every 50 ms while any button is held (plus once 100 ms after the last release), send `{ s: <bitmask>, n: <sequence number> }`.
+- [ ] Host (`client/host/main.js`): on `"state"` messages ignore any with `n` lower than the last one seen; compare the bitmask with the current input and call `applyInput(playerId, btn, down)` only for buttons that changed. The game code itself does not change.
+- [ ] Keep the existing reliable `"peaky"` channel for pings, feedback and as a fallback; the Socket.IO path stays the last fallback (send full state there too, or keep btn/down events — must not leave a button stuck).
+- [ ] Update the message protocol table in this file.
+- [ ] Verify headless: a simulated phone presses/releases quickly, dropped messages (simulate by skipping sends) never leave a button stuck.
+
+**Task C – Frankfurt server**
+- [ ] `render.yaml`: add `region: frankfurt` and rename the service to `peaky-console` (a region can't be changed on an existing service). Commit + push. Then **Toni**: Render → New → Blueprint → this repo; check `/healthz`; test; delete the old `kart-game` service in Oregon afterwards. Update the README/URL notes in this file with the new URL.
+
+**Task D – Only if Task A shows the host page is the bottleneck (net low, js high)**
+- [ ] Apply inputs the moment they arrive (already true: `applyInput` writes into `p.input`), but make sure nothing heavy runs in the message handler.
+- [ ] Lower the per-frame cost when 3–4 players are in the kart race: shadow map size/updates (e.g. update the shadow every 2nd frame), `PIXEL_ROWS` back to 270 for 3–4 views, fewer particles. Target: slowest frame < 20 ms.
+- [ ] Re-measure with the overlay and log FPS / slowest frame before and after.
+
+**Toni's checks (no code, do while Task A is being built)**
+1. [ ] Is the host the MacBook on Wi-Fi? Test with Ethernet, or run `sudo ifconfig awdl0 down` (turns off AirDrop/Handoff until restart or `sudo ifconfig awdl0 up`) and compare DIRECT.
+2. [ ] Phones on **5 GHz** Wi-Fi; on a mesh, phones and Mac on the same node.
+3. [ ] Low Power Mode / Battery Saver off on the phones.
+4. [ ] TV Game Mode on.
+5. [ ] Write the numbers (before/after each check) in the status log.
+
+**Done when:** DIRECT peaks stay under ~30 ms on home Wi-Fi and SERVER < 60 ms.
+
 ### 9.2 Android TV wrapper with Capacitor (the real app)
 Why Capacitor: it puts our existing `dist/` into an Android `WebView`, no rewrite. (Not a TWA: that needs Chrome, which most Android TVs don't have.)
 1. [ ] Install **Android Studio** (includes the SDK + an Android TV emulator: Device Manager → TV → 1080p).
@@ -212,3 +247,5 @@ Only if we want it to work without internet (school Wi-Fi, café, travel). The T
 - 2026-11-08: First ping measurement (Oregon, `P` overlay): SERVER 250–300 ms, DIRECT 20–90 ms. DIRECT should be ~5–15 ms on the same Wi-Fi; suspect phone Wi-Fi power saving, because the host only pings once per second (`setInterval(..., 1000)` in `host/main.js`), so the phone radio is asleep between pings. Test: ping every 100 ms and/or read the value while holding a button. 9.3 Home mode put on hold by Toni.
 - 2026-11-08: WebRTC ping from the host is now 20 per second (was 1/s) with a smoothed RTT in the P overlay: steady traffic keeps the phones' Wi-Fi radio awake (power saving suspected for DIRECT 20-90 ms vs ~5-15 expected). Not yet measured on phones.
 - 2026-11-09: **Vibration vocabulary.** Phone-side ticks on touch (stick 8-12 ms, A/B 18, ITEM 28). Host-sent buzz patterns (`BUZZ` + `buzzEvents()` in `host/main.js`): kart = GO 70, wall/kart bump = thud 40-150 ms by crash strength (throttled 250 ms), banana/rocket hit = [260,70,140], item pickup = double tap, drift boost = 3-step / 5-step rising, lap, finish; fighter = hurt [90,40,60], landed hit 35, block double tap, KO long; shooter = hurt [70,30,90], hit marker 30, shotgun recoil 55 / pistol 25. Verified headless (phone received GO then a bump thud). iPhone Safari has no `navigator.vibrate`, so iPhones only get the single tap trick (iOS 18+), no patterns.
+- 2026-11-09: DIRECT still 20–90 ms after 20 pings/s. Added **9.1b Ping fixes** task list (A diagnostics via getStats, B unreliable channel with full button state, C Frankfurt, D host frame cost if needed) for the VS Code agent, plus Toni's network checks (Mac AWDL/Ethernet, 5 GHz, Low Power Mode).
+- 2026-11-09: **9.1b Task A done.** `P` overlay now shows `FPS / SLOWEST FRAME ms / SERVER ms` and one line per phone: `NAME DIRECT js x / net y / peak z MS route` (js = our ping/pong, net = `getStats()` candidate-pair currentRoundTripTime, peak = worst js rtt in the last 5 s, route = e.g. host-host). Verified headless (host-host, ~0 ms on one machine). Needs a real-network reading to apply the "Reading the result" rules.

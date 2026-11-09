@@ -196,7 +196,7 @@ async function onSignal({ playerId, data }) {
   if (data.sdp?.type === "offer") {
     closeLink(playerId);
     const pc = new RTCPeerConnection(RTC_CONFIG);
-    const link = { pc, channel: null, rtt: null };
+    const link = { pc, channel: null, rtt: null, netRtt: null, route: "-", samples: [] };
     links.set(playerId, link);
     pc.onicecandidate = (e) => e.candidate && socket.emit(EVENTS.RTC_SIGNAL, { playerId, data: { candidate: e.candidate } });
     pc.ondatachannel = (e) => {
@@ -206,6 +206,9 @@ async function onSignal({ playerId, data }) {
         if (msg.pong) {
           const rtt = performance.now() - msg.pong;
           link.rtt = link.rtt == null ? rtt : link.rtt * 0.9 + rtt * 0.1; // smoothed, because it is sampled 20 times a second
+          const t = performance.now();
+          link.samples.push({ t, rtt });
+          while (link.samples[0].t < t - 5000) link.samples.shift(); // keep the last 5 s for the peak
         } else applyInput(playerId, msg.btn, msg.down);
       };
     };
@@ -528,13 +531,42 @@ setInterval(() => {
   const t = performance.now();
   socket.emit("latency", () => (ping = Math.round(performance.now() - t)));
 }, 1000);
+// Once a second ask the browser what the network itself measured (ICE candidate pair): "net" is the round trip
+// of the connection, "js" is our ping/pong, which also waits for both pages' JavaScript. The route says whether
+// phone and TV talk directly (host-host), through a public address (srflx) or via a relay.
+setInterval(async () => {
+  if (!perfOn) return;
+  for (const link of links.values()) {
+    if (link.channel?.readyState !== "open") continue;
+    try {
+      const reports = new Map();
+      (await link.pc.getStats()).forEach((r) => reports.set(r.id, r));
+      const pair = [...reports.values()].find((r) => r.type === "candidate-pair" && r.nominated && r.state === "succeeded");
+      if (!pair) continue;
+      if (pair.currentRoundTripTime != null) link.netRtt = pair.currentRoundTripTime * 1000;
+      link.route = `${reports.get(pair.localCandidateId)?.candidateType ?? "?"}-${reports.get(pair.remoteCandidateId)?.candidateType ?? "?"}`;
+    } catch {}
+  }
+}, 1000);
+
+let lastFrame = null;
+let slowest = 0; // longest gap between two frames in the last second (ms)
 function updatePerf(now) {
   frames += 1;
+  if (lastFrame != null) slowest = Math.max(slowest, now - lastFrame);
+  lastFrame = now;
   if (now - fpsSince < 1000) return;
-  const direct = [...links.values()].filter((l) => l.channel?.readyState === "open");
-  const rtt = direct.length ? Math.round(Math.max(...direct.map((l) => l.rtt ?? 0))) : "-";
-  $("perf").textContent = `FPS ${frames}  SERVER ${ping ?? "-"} MS  DIRECT ${direct.length}/${players.size} ${rtt} MS`;
+  const ms = (v) => (v == null ? "-" : Math.round(v));
+  const lines = [`FPS ${frames}  SLOWEST FRAME ${ms(slowest)} MS  SERVER ${ping ?? "-"} MS`];
+  for (const [id, link] of links) {
+    if (link.channel?.readyState !== "open") continue;
+    const peak = link.samples.length ? Math.max(...link.samples.map((x) => x.rtt)) : null;
+    lines.push(`${players.get(id)?.name ?? id} DIRECT js ${ms(link.rtt)} / net ${ms(link.netRtt)} / peak ${ms(peak)} MS ${link.route}`);
+  }
+  if (lines.length === 1) lines.push("NO DIRECT LINK (using the server)");
+  $("perf").textContent = lines.join("\n");
   frames = 0;
+  slowest = 0;
   fpsSince = now;
 }
 
