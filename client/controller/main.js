@@ -162,7 +162,7 @@ function send(button, down) {
   const msg = { btn: button.dataset.btn, down };
   if (channel?.readyState === "open") channel.send(JSON.stringify(msg));
   else socket.emit(EVENTS.INPUT, msg);
-  if (down) haptic(dpad.contains(button) ? 6 : 14);
+  if (down) haptic(dpad.contains(button) ? 8 : button.id === "itemBtn" ? 28 : 18);
 }
 
 for (const button of padScreen.querySelectorAll("button")) {
@@ -198,7 +198,7 @@ function stickStart(e) {
   dpad.classList.remove("glide");
   dpad.classList.add("live");
   setVars({ "--jx": x - (r.left + r.width / 2), "--jy": y - (r.top + r.height / 2), "--kx": stick.offX, "--ky": stick.offY });
-  haptic(8);
+  haptic(12);
 }
 function stickMove(e) {
   const max = dpad.offsetWidth * 0.32;

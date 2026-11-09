@@ -394,12 +394,38 @@ function sendFeedback() {
   }
 }
 
-// a longer buzz on the phone of a kart that was hit
-function buzzHits(events) {
+// Buzz patterns on the phone (ms on, off, on...). Pressing a button is a tiny tick (done on the phone itself);
+// these are the "something happened to you" buzzes, each with its own rhythm so you can feel which it was.
+const BUZZ = {
+  hit: [260, 70, 140], // banana / rocket: long, wobbly
+  pickup: [20, 50, 20], // item box: double tap
+  boost1: [30, 30, 60],
+  boost2: [40, 30, 40, 30, 110], // bigger drift boost: rising
+  lap: [50, 70, 50],
+  finish: [120, 60, 120, 60, 320],
+  go: 70,
+};
+const lastBump = new Map();
+function buzzEvents(events) {
+  const now = performance.now();
   for (const e of events) {
-    if (e.type === "hit" && !race.karts.find((k) => k.id === e.id)?.bot) {
-      toPhone({ playerId: e.id, vibrate: 300 });
+    if (e.type === "go") {
+      for (const k of race.karts) if (!k.bot) toPhone({ playerId: k.id, vibrate: BUZZ.go });
+      continue;
     }
+    if (race.karts.find((k) => k.id === e.id)?.bot !== false) continue; // humans only
+    let vibrate = null;
+    if (e.type === "hit") vibrate = BUZZ.hit;
+    else if (e.type === "pickup") vibrate = BUZZ.pickup;
+    else if (e.type === "driftboost") vibrate = e.level > 1 ? BUZZ.boost2 : BUZZ.boost1;
+    else if (e.type === "lap") vibrate = BUZZ.lap;
+    else if (e.type === "finish") vibrate = BUZZ.finish;
+    else if (e.type === "bump" && now - (lastBump.get(e.id) ?? 0) > 250) {
+      // wall or kart crash: a short thud, harder for a harder crash
+      lastBump.set(e.id, now);
+      vibrate = Math.round(Math.min(40 + e.strength * 4, 150));
+    }
+    if (vibrate) toPhone({ playerId: e.id, vibrate });
   }
 }
 
@@ -423,7 +449,9 @@ function tickFight() {
     fightView.onEvent(e);
     audio.handle(e);
     const human = (id) => players.has(id);
-    if (e.type === "hurt" && human(e.id)) toPhone({ playerId: e.id, vibrate: 120 });
+    if (e.type === "hurt" && human(e.id)) toPhone({ playerId: e.id, vibrate: [90, 40, 60] }); // you got hit
+    if (e.type === "hurt" && human(e.by)) toPhone({ playerId: e.by, vibrate: 35 }); // you landed a hit: short thump
+    if (e.type === "block" && human(e.id)) toPhone({ playerId: e.id, vibrate: [25, 30, 25] }); // you blocked: two taps
     if (e.type === "ko" && human(e.id)) toPhone({ playerId: e.id, vibrate: [200, 100, 200] });
   }
   fight.events.length = 0;
@@ -448,7 +476,9 @@ function tickShooter() {
     shooterView.onEvent(e);
     audio.handle(e);
     const human = (id) => players.has(id);
-    if (e.type === "hurt" && human(e.id)) toPhone({ playerId: e.id, vibrate: 80 });
+    if (e.type === "hurt" && human(e.id)) toPhone({ playerId: e.id, vibrate: [70, 30, 90] }); // you got shot
+    if (e.type === "hurt" && human(e.by) && e.by !== e.id) toPhone({ playerId: e.by, vibrate: 30 }); // hit marker
+    if (e.type === "shot" && human(e.id)) toPhone({ playerId: e.id, vibrate: e.weapon === 0 ? 55 : 25 }); // recoil: shotgun kicks harder
     if (e.type === "ko" && human(e.id)) toPhone({ playerId: e.id, vibrate: [200, 100, 200] });
   }
   shooter.events.length = 0;
@@ -477,7 +507,7 @@ function tick() {
   for (const k of race.karts) k.connected = k.bot || (players.get(k.id)?.connected ?? false);
   race.update(STEP, getInput);
   sendFeedback();
-  buzzHits(race.events);
+  buzzEvents(race.events);
   for (const event of race.events) audio.handle(event);
   race.events.length = 0;
 
