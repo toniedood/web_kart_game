@@ -1,7 +1,8 @@
 # Render Blueprint: one Docker web service (Python server + built game)
 services:
   - type: web
-    name: kart-game
+    name: peaky-console
+    region: frankfurt # EU: closer to the players than the default (Oregon)
     runtime: docker
     plan: free
     healthCheckPath: /healthz
