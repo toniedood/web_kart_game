@@ -1,6 +1,6 @@
 import { io } from "socket.io-client";
 import QRCode from "qrcode";
-import { EVENTS, RTC_CONFIG } from "../shared/events.js";
+import { EVENTS, BUTTONS, RTC_CONFIG } from "../shared/events.js";
 import { STEP, LAPS, MAX_PLAYERS } from "./config.js";
 import { TRACKS } from "./tracks.js";
 import { buildTrack } from "./track.js";
@@ -172,7 +172,7 @@ socket.on(EVENTS.PLAYER_LEFT, ({ playerId }) => {
 
 function applyInput(playerId, btn, down) {
   const p = players.get(playerId);
-  if (p) p.input[btn] = down;
+  if (p && !!p.input[btn] !== down) p.input[btn] = down; // only real changes touch the input
 }
 socket.on(EVENTS.INPUT, ({ playerId, btn, down }) => applyInput(playerId, btn, down));
 
@@ -191,19 +191,32 @@ function toPhone(data) {
   if (channel?.readyState === "open") channel.send(JSON.stringify(data));
   else socket.emit(EVENTS.PLAYER_FEEDBACK, data);
 }
+// {s: bit mask of all buttons, n: sequence number}. Copies older than the newest one seen (late, duplicated or
+// reordered) are ignored; for the rest only buttons that really changed are applied.
+function applyState(link, playerId, { s, n }) {
+  if (n < link.lastN) return;
+  link.lastN = n;
+  BUTTONS.forEach((btn, i) => applyInput(playerId, btn, !!(s & (1 << i))));
+}
 async function onSignal({ playerId, data }) {
   if (!data) return;
   if (data.sdp?.type === "offer") {
     closeLink(playerId);
     const pc = new RTCPeerConnection(RTC_CONFIG);
-    const link = { pc, channel: null, rtt: null, netRtt: null, route: "-", samples: [] };
+    const link = { pc, channel: null, lastN: -1, rtt: null, netRtt: null, route: "-", samples: [] };
     links.set(playerId, link);
     pc.onicecandidate = (e) => e.candidate && socket.emit(EVENTS.RTC_SIGNAL, { playerId, data: { candidate: e.candidate } });
     pc.ondatachannel = (e) => {
+      if (e.channel.label === "state") {
+        // unreliable channel: full button state + sequence number
+        e.channel.onmessage = (m) => applyState(link, playerId, JSON.parse(m.data));
+        return;
+      }
       link.channel = e.channel;
       e.channel.onmessage = (m) => {
         const msg = JSON.parse(m.data);
-        if (msg.pong) {
+        if (msg.s !== undefined) applyState(link, playerId, msg); // the reliable copy of a state change
+        else if (msg.pong) {
           const rtt = performance.now() - msg.pong;
           link.rtt = link.rtt == null ? rtt : link.rtt * 0.9 + rtt * 0.1; // smoothed, because it is sampled 20 times a second
           const t = performance.now();

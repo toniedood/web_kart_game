@@ -103,6 +103,9 @@ Web game app/
 | `game:phase` | host → server → phones | `{ phase: "lobby"\|"countdown"\|"race"\|"results" }` |
 | `player:feedback` | host → server → one phone | `{ lap, position, item?, vibrate? }` (`item`: null\|"boost"\|"banana"\|"rocket") |
 | `room:closed` | server → phones | `{}` |
+| `rtc:signal` | phone ⇄ host via server | `{ data: { sdp } or { candidate } }` (host → phone adds `playerId`). Sets up the WebRTC connection |
+| data channel `state` | phone → host, direct | **unreliable** (`ordered:false, maxRetransmits:0`): `{ s: bit mask of buttons (bit i = BUTTONS[i]), n: sequence }`, sent on every change, every 50 ms while held and for 100 ms after release. Each *change* is also sent on `peaky` with the same `n` |
+| data channel `peaky` | both ways, direct | **reliable**: host → phone `player:feedback` objects and `{ping}`; phone → host `{pong}`, the reliable copy of state changes, and (when no `state` channel) `{btn, down}` |
 
 **Rules:**
 - Room codes are 4 letters
@@ -153,18 +156,18 @@ Key idea: since the WebRTC channel exists, the cloud server is only needed to **
 Toni asked for these to be implemented by the AI (VS Code extension). Do them **in order**, one commit per task, and add a status-log line after each. Measured so far: SERVER 250–300 ms (Oregon), DIRECT 20–90 ms even with 20 pings/s (22702d0), so Wi-Fi power saving was not the main cause.
 
 **Task A – Diagnostics in the `P` overlay (do first, it decides what matters)**
-- [ ] In `client/host/main.js`, every 1 s call `link.pc.getStats()` for each open link. Find the `candidate-pair` with `state === "succeeded"` (or `nominated`); read `currentRoundTripTime` (seconds → ms) and look up its `localCandidateId` / `remoteCandidateId` reports to get `candidateType` (`host` / `srflx` / `prflx` / `relay`). Store as `link.netRtt` and `link.route` (e.g. `host-host`).
-- [ ] Also record the worst DIRECT rtt in the last 5 s per link (`link.peak`), not only the smoothed value.
-- [ ] Overlay: one line per phone, e.g. `P1 DIRECT js 24 / net 6 / peak 88 MS host-host`, plus FPS and the time of the slowest frame in the last second (ms).
-- [ ] Nothing changes in gameplay. Verify headless that the numbers show.
+- [x] In `client/host/main.js`, every 1 s call `link.pc.getStats()` for each open link. Find the `candidate-pair` with `state === "succeeded"` (or `nominated`); read `currentRoundTripTime` (seconds → ms) and look up its `localCandidateId` / `remoteCandidateId` reports to get `candidateType` (`host` / `srflx` / `prflx` / `relay`). Store as `link.netRtt` and `link.route` (e.g. `host-host`).
+- [x] Also record the worst DIRECT rtt in the last 5 s per link (`link.peak`), not only the smoothed value.
+- [x] Overlay: one line per phone, e.g. `P1 DIRECT js 24 / net 6 / peak 88 MS host-host`, plus FPS and the time of the slowest frame in the last second (ms).
+- [x] Nothing changes in gameplay. Verify headless that the numbers show.
 - Reading the result: **net low but js high** → the host page is busy (rendering) → Task D. **net high** → Wi-Fi/network → Task B + Toni's checks below. **route not host-host** → the phones and the TV are not talking directly on the LAN (mDNS / router) → note it in the status log.
 
 **Task B – Unreliable channel with full button state (removes the lost-packet spikes)**
-- [ ] Phone (`client/controller/main.js`): keep the current button state in one object `{ left, right, up, down, gas, brake, item }`. Open a second data channel `"state"` with `{ ordered: false, maxRetransmits: 0 }`. On every change, and again every 50 ms while any button is held (plus once 100 ms after the last release), send `{ s: <bitmask>, n: <sequence number> }`.
-- [ ] Host (`client/host/main.js`): on `"state"` messages ignore any with `n` lower than the last one seen; compare the bitmask with the current input and call `applyInput(playerId, btn, down)` only for buttons that changed. The game code itself does not change.
-- [ ] Keep the existing reliable `"peaky"` channel for pings, feedback and as a fallback; the Socket.IO path stays the last fallback (send full state there too, or keep btn/down events — must not leave a button stuck).
-- [ ] Update the message protocol table in this file.
-- [ ] Verify headless: a simulated phone presses/releases quickly, dropped messages (simulate by skipping sends) never leave a button stuck.
+- [x] Phone (`client/controller/main.js`): keep the current button state in one object `{ left, right, up, down, gas, brake, item }`. Open a second data channel `"state"` with `{ ordered: false, maxRetransmits: 0 }`. On every change, and again every 50 ms while any button is held (plus once 100 ms after the last release), send `{ s: <bitmask>, n: <sequence number> }`.
+- [x] Host (`client/host/main.js`): on `"state"` messages ignore any with `n` lower than the last one seen; compare the bitmask with the current input and call `applyInput(playerId, btn, down)` only for buttons that changed. The game code itself does not change.
+- [x] Keep the existing reliable `"peaky"` channel for pings, feedback and as a fallback; the Socket.IO path stays the last fallback (send full state there too, or keep btn/down events — must not leave a button stuck).
+- [x] Update the message protocol table in this file.
+- [x] Verify headless: a simulated phone presses/releases quickly, dropped messages (simulate by skipping sends) never leave a button stuck.
 
 **Task C – Frankfurt server**
 - [ ] `render.yaml`: add `region: frankfurt` and rename the service to `peaky-console` (a region can't be changed on an existing service). Commit + push. Then **Toni**: Render → New → Blueprint → this repo; check `/healthz`; test; delete the old `kart-game` service in Oregon afterwards. Update the README/URL notes in this file with the new URL.
@@ -249,3 +252,4 @@ Only if we want it to work without internet (school Wi-Fi, café, travel). The T
 - 2026-11-09: **Vibration vocabulary.** Phone-side ticks on touch (stick 8-12 ms, A/B 18, ITEM 28). Host-sent buzz patterns (`BUZZ` + `buzzEvents()` in `host/main.js`): kart = GO 70, wall/kart bump = thud 40-150 ms by crash strength (throttled 250 ms), banana/rocket hit = [260,70,140], item pickup = double tap, drift boost = 3-step / 5-step rising, lap, finish; fighter = hurt [90,40,60], landed hit 35, block double tap, KO long; shooter = hurt [70,30,90], hit marker 30, shotgun recoil 55 / pistol 25. Verified headless (phone received GO then a bump thud). iPhone Safari has no `navigator.vibrate`, so iPhones only get the single tap trick (iOS 18+), no patterns.
 - 2026-11-09: DIRECT still 20–90 ms after 20 pings/s. Added **9.1b Ping fixes** task list (A diagnostics via getStats, B unreliable channel with full button state, C Frankfurt, D host frame cost if needed) for the VS Code agent, plus Toni's network checks (Mac AWDL/Ethernet, 5 GHz, Low Power Mode).
 - 2026-11-09: **9.1b Task A done.** `P` overlay now shows `FPS / SLOWEST FRAME ms / SERVER ms` and one line per phone: `NAME DIRECT js x / net y / peak z MS route` (js = our ping/pong, net = `getStats()` candidate-pair currentRoundTripTime, peak = worst js rtt in the last 5 s, route = e.g. host-host). Verified headless (host-host, ~0 ms on one machine). Needs a real-network reading to apply the "Reading the result" rules.
+- 2026-11-09: **9.1b Task B done.** Phone keeps all button states as a bit mask and sends it with a sequence number on an unreliable data channel `state` (on every change, every 50 ms while held, 100 ms after release); every change is also sent on the reliable channel with the same number as a safety net. Host `applyState()` drops copies older than the newest seen and applies only real changes; Socket.IO `{btn, down}` stays the last fallback. Verified headless with simulated packet loss (patched `send`): 0 / 60 / 95 % loss -> 0 stuck buttons and 0 missed presses in 40 quick press/release cycles. (A first version with only repeats left 6/40 stuck at 60 % loss; the reliable copy fixed it.) Protocol table updated.

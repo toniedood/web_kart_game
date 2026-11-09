@@ -1,5 +1,5 @@
 import { io } from "socket.io-client";
-import { EVENTS, RTC_CONFIG } from "../shared/events.js";
+import { EVENTS, BUTTONS, RTC_CONFIG } from "../shared/events.js";
 import { colourLogos } from "../shared/logo.js";
 import { HAIR_STYLES, ACCESSORIES, HAIR_COLORS, SKINS, OUTFITS, cleanLook, resolveLook, randomLook } from "../shared/look.js";
 import { drawFighter, specFromLook, POSES } from "../host/fight/sprites.js";
@@ -66,12 +66,17 @@ let myColor = loadSession()?.color ?? "#e53935"; // the colour the server gave t
 // --- WebRTC: a direct line to the host screen ---
 // Buttons go over this data channel when it is open (no detour through the server); otherwise over the socket.
 let pc = null;
-let channel = null;
+let channel = null; // reliable "peaky": pings, feedback, and the button fallback
+let stateChannel = null; // unreliable "state": the full button state, repeated, so a lost packet never matters
 function openLink() {
   pc?.close();
   const mine = new RTCPeerConnection(RTC_CONFIG);
   pc = mine;
   channel = null;
+  stateChannel = null;
+  const st = mine.createDataChannel("state", { ordered: false, maxRetransmits: 0 });
+  st.onopen = () => (stateChannel = st);
+  st.onclose = () => stateChannel === st && (stateChannel = null);
   const ch = mine.createDataChannel("peaky"); // reliable + ordered: a lost "button up" would leave a button stuck
   ch.onopen = () => (channel = ch);
   ch.onclose = () => channel === ch && (channel = null);
@@ -93,7 +98,7 @@ socket.on(EVENTS.RTC_SIGNAL, ({ data }) => {
 });
 socket.on("disconnect", () => {
   pc?.close();
-  pc = channel = null;
+  pc = channel = stateChannel = null;
 });
 
 function join(name, saved) {
@@ -156,12 +161,47 @@ function haptic(ms) {
   } catch {}
 }
 
+// The whole button state as a bit mask (bit i = BUTTONS[i]) with a sequence number. It is sent on every change and
+// repeated every 50 ms while a button is held and for 100 ms after the last release, so a dropped packet is
+// corrected by the next one and a button can never stay stuck on the TV.
+const buttonState = {};
+let stateSeq = 0;
+let stateTimer = null;
+let stateUntil = 0;
+const stateMask = () => BUTTONS.reduce((m, b, i) => m | (buttonState[b] ? 1 << i : 0), 0);
+function sendState(change = false) {
+  if (stateChannel?.readyState !== "open") return false;
+  const msg = JSON.stringify({ s: stateMask(), n: ++stateSeq });
+  stateChannel.send(msg);
+  // a change also goes down the reliable channel (same sequence number): it arrives even if the fast copy is lost,
+  // and the host drops whichever copy is older than what it has already seen
+  if (change && channel?.readyState === "open") channel.send(msg);
+  return true;
+}
+function pushState() {
+  if (!sendState(true)) return false;
+  stateUntil = stateMask() ? Infinity : performance.now() + 100;
+  if (!stateTimer) {
+    stateTimer = setInterval(() => {
+      if (!sendState() || performance.now() > stateUntil) {
+        clearInterval(stateTimer);
+        stateTimer = null;
+      }
+    }, 50);
+  }
+  return true;
+}
+
 function send(button, down) {
   if (down === button.classList.contains("down")) return;
   button.classList.toggle("down", down);
   const msg = { btn: button.dataset.btn, down };
-  if (channel?.readyState === "open") channel.send(JSON.stringify(msg));
-  else socket.emit(EVENTS.INPUT, msg);
+  buttonState[msg.btn] = down;
+  if (!pushState()) {
+    // no state channel yet: the reliable channel, and last of all the server
+    if (channel?.readyState === "open") channel.send(JSON.stringify(msg));
+    else socket.emit(EVENTS.INPUT, msg);
+  }
   if (down) haptic(dpad.contains(button) ? 8 : button.id === "itemBtn" ? 28 : 18);
 }
 
